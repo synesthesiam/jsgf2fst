@@ -14,6 +14,11 @@ def main():
     parser = argparse.ArgumentParser("fstaccept")
     parser.add_argument("fst", help="Path to FST")
     parser.add_argument("sentences", nargs="+", help="Sentences to parse")
+    parser.add_argument(
+        "--dont-replace",
+        action="store_true",
+        help="Disable automation TAG:REPLACE behavior",
+    )
     args = parser.parse_args()
 
     grammar_fst = fst.Fst.read(args.fst)
@@ -44,10 +49,17 @@ def main():
                         tag_symbols = []
                     elif sym.startswith("__end__"):
                         assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
-                        intent["entities"].append({
-                            "entity": tag,
-                            "value": " ".join(tag_symbols)
-                        })
+
+                        if not args.dont_replace and (":" in tag):
+                            # Use replacement string in the tag
+                            tag, tag_value = tag.split(":", maxsplit=1)
+                        else:
+                            # Use text between begin/end
+                            tag_value = " ".join(tag_symbols)
+
+                        intent["entities"].append(
+                            {"entity": tag, "value": tag_value}
+                        )
 
                         tag = None
                     elif tag:
@@ -77,7 +89,7 @@ def linear_fst(elements, automata_op, keep_isymbols=True, **kwargs):
         isymbols=automata_op.input_symbols().copy(),
         acceptor=keep_isymbols,
         keep_isymbols=keep_isymbols,
-        **kwargs
+        **kwargs,
     )
 
     for i, el in enumerate(elements):

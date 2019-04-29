@@ -2,13 +2,21 @@
 grammar SetTimer;
 
 public <SetTimer> = ((set [a] timer for <time_expr>));
+
 <two_to_nine> = ((two | three | four | five | six | seven | eight | nine));
 <one_to_nine> = ((one | <two_to_nine>));
 <one_to_twenty_four> = ((one | <two_to_nine> | <teens> | twenty [<one_to_nine>]));
 <teens> = ((ten | eleven | twelve | thirteen | fourteen | fifteen | sixteen | seventeen | eighteen | nineteen));
 <tens> = ((twenty | thirty | forty | fifty));
+<one_to_fifty_nine> = ((<one_to_nine> | <teens> | <tens> [<one_to_nine>]));
 <two_to_fifty_nine> = ((<two_to_nine> | <teens> | <tens> [<one_to_nine>]));
-<hour_expr> = (((one){hours} hour) | ((<one_to_twenty_four> | ten){hours} hours));
-<minute_expr> = (((one){minutes} minute) | ((<two_to_fifty_nine>){minutes} minutes));
+
+<hour_half_expr> = ((<one_to_twenty_four>){hours} and (a half){minutes:thirty} hours);
+<hour_expr> = (((one){hours} hour) | ((<one_to_twenty_four> | ten){hours} hours) | <hour_half_expr>);
+
+<minute_half_expr> = ((<one_to_fifty_nine>){minutes} and (a half){seconds:thirty} minutes);
+<minute_expr> = (((one){minutes} minute) | ((<two_to_fifty_nine>){minutes} minutes) | <minute_half_expr>);
+
 <second_expr> = (((one){seconds} second) | ((<two_to_fifty_nine>){seconds} seconds));
+
 <time_expr> = (((<hour_expr> [[and] <minute_expr>] [[and] <second_expr>]) | (<minute_expr> [[and] <second_expr>]) | <second_expr>));

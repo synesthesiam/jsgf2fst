@@ -24,6 +24,8 @@ def main():
         logging.fatal("Missing sphinx_jsgf2fst (expected in PATH)")
         sys.exit(1)
 
+    os.makedirs(args.out_dir, exist_ok=True)
+
     grammars = []
 
     for grammar_path in args.grammars:
@@ -50,6 +52,7 @@ def main():
 
         logging.debug(f"Converting to FST")
         fst_path = os.path.abspath(os.path.join(args.out_dir, f"{grammar.name}.fst"))
+
         with tempfile.NamedTemporaryFile(mode="w+") as fsm_file:
             proc = subprocess.run(
                 ["sphinx_jsgf2fsg", "-jsgf", "/dev/stdin", "-fsm", fsm_file.name],
