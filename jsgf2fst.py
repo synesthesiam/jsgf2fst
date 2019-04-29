@@ -18,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser("jsgf2fst")
     parser.add_argument("grammars", nargs="+", help="JSGF grammars to convert")
     parser.add_argument("--out-dir", default=".", help="Directory to write FST files")
+    parser.add_argument("--slots-dir", default=".", help="Directory to read slot files")
+    parser.add_argument("--no-slots", action="store_true", help="Don't expand $slots")
     args = parser.parse_args()
 
     if not shutil.which("sphinx_jsgf2fsg"):
@@ -39,6 +41,9 @@ def main():
         for rule in grammar.rules
     }
 
+    # Directory where slot values are stored ($slot_name -> dir/slot_name)
+    slots_dir = None if args.no_slots else args.slots_dir
+
     # Process each grammar
     for grammar in grammars:
         logging.debug(f"Processing {grammar.name}")
@@ -47,7 +52,7 @@ def main():
         for name, rule in global_rule_map.items():
             rule_map[name] = rule
 
-        replace_tags_and_rules(top_rule, rule_map)
+        replace_tags_and_rules(top_rule, rule_map, slots_dir=slots_dir)
         new_grammar_string = grammar.compile()
 
         logging.debug(f"Converting to FST")
@@ -58,7 +63,7 @@ def main():
                 ["sphinx_jsgf2fsg", "-jsgf", "/dev/stdin", "-fsm", fsm_file.name],
                 input=new_grammar_string.encode(),
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
 
             # Convert to fst
@@ -95,12 +100,12 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def replace_tags_and_rules(rule, rule_map):
+def replace_tags_and_rules(rule, rule_map, slots_dir=None):
     """Replace named rules from other grammars with their expansions.
     Replace tags with sequences of __begin__TAG ... __end__TAG."""
     if isinstance(rule, jsgf.rules.Rule):
         # Unpack
-        return replace_tags_and_rules(rule.expansion, rule_map)
+        return replace_tags_and_rules(rule.expansion, rule_map, slots_dir=slots_dir)
     else:
         # TODO: Handle tags on rule refs and literals
         tag = rule.tag
@@ -113,7 +118,7 @@ def replace_tags_and_rules(rule, rule_map):
             tag_seq.children.extend(
                 [
                     jsgf.expansions.Literal(f"__begin__{tag}"),
-                    replace_tags_and_rules(rule, rule_map),
+                    replace_tags_and_rules(rule, rule_map, slots_dir=slots_dir),
                     jsgf.expansions.Literal(f"__end__{tag}"),
                 ]
             )
@@ -126,15 +131,31 @@ def replace_tags_and_rules(rule, rule_map):
                 grammar_name = rule.rule.grammar.name
                 ref_rule = rule_map[f"{grammar_name}.{rule.name}"]
 
-            return replace_tags_and_rules(ref_rule.expansion, rule_map)
+            return replace_tags_and_rules(ref_rule.expansion, rule_map, slots_dir=slots_dir)
+        elif isinstance(rule, jsgf.expansions.Literal):
+            if slots_dir and rule.text.startswith("$"):
+                slot_name = rule.text[1:]
+                slot_path = os.path.join(slots_dir, slot_name)
+                logging.debug(f"Replacing slot {slot_name} with {slot_path}")
+
+                slot_alt = jsgf.expansions.AlternativeSet()
+                with open(slot_path, "r") as slot_file:
+                    for line in slot_file:
+                        slot_value = line.strip().lower()
+                        slot_alt.children.append(jsgf.expansions.Literal(slot_value))
+
+                return slot_alt
+
+            return rule
         elif hasattr(rule, "children"):
             rule.children = [
-                replace_tags_and_rules(child, rule_map) for child in rule.children
+                replace_tags_and_rules(child, rule_map, slots_dir=slots_dir)
+                for child in rule.children
             ]
 
             return rule
         elif hasattr(rule, "child"):
-            rule.child = replace_tags_and_rules(rule.child, rule_map)
+            rule.child = replace_tags_and_rules(rule.child, rule_map, slots_dir=slots_dir)
             return rule
         else:
             # Unsupported
