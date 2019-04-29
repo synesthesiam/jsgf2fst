@@ -64,6 +64,7 @@ def main():
                         tag = None
                     elif tag:
                         tag_symbols.append(sym)
+                        out_symbols.append(sym)
                     else:
                         out_symbols.append(sym)
 
