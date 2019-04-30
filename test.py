@@ -1,10 +1,11 @@
 import unittest
 import logging
+import tempfile
 
 logging.basicConfig(level=logging.DEBUG)
 
 import jsgf
-from jsgf2fst import jsgf2fst, fstaccept, read_slots
+from jsgf2fst import jsgf2fst, fstaccept, read_slots, fst2arpa
 
 
 class Jsgf2FstTestCase(unittest.TestCase):
@@ -94,6 +95,20 @@ class Jsgf2FstTestCase(unittest.TestCase):
         ev = intent["entities"][0]
         assert ev["entity"] == "color"
         assert ev["value"] == "orange"
+
+    # -------------------------------------------------------------------------
+
+    def test_arpa(self):
+        grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
+        fst = jsgf2fst(grammar)
+        assert len(list(fst.states())) > 0, "Empty FST"
+
+        with tempfile.NamedTemporaryFile(mode="wb+") as fst_file:
+            fst.write(fst_file.name)
+
+            fst_file.seek(0)
+            arpa = fst2arpa(fst_file.name)
+            assert len(arpa) > 0, "Empty ARPA"
 
 
 # -----------------------------------------------------------------------------
