@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
+import os
 import sys
 import argparse
 import re
 import json
 import logging
 
-logging.basicConfig(level=logging.INFO)
-
 import pywrapfst as fst
 
 
 def main():
+    logging.basicConfig(level=logging.INFO)
+
     parser = argparse.ArgumentParser("fstaccept")
     parser.add_argument("fst", help="Path to FST")
     parser.add_argument("sentences", nargs="+", help="Sentences to parse")
@@ -22,60 +23,77 @@ def main():
     args = parser.parse_args()
 
     grammar_fst = fst.Fst.read(args.fst)
+    intent_name = os.path.splitext(os.path.split(args.fst)[1])[0]
     results = {}
 
     # Run each sentence through FST acceptor
     for sentence in args.sentences:
-        # Assume lower case, white-space separated tokens
-        sentence = sentence.strip().lower()
-        words = re.split(r"\s+", sentence)
-        intent = empty_intent()
-
-        try:
-            out_fst = apply_fst(words, grammar_fst)
-
-            # Get output symbols
-            out_symbols = []
-            tag_symbols = []
-            tag = None
-            for state in out_fst.states():
-                for arc in out_fst.arcs(state):
-                    sym = out_fst.output_symbols().find(arc.olabel).decode()
-                    if sym == "<eps>":
-                        continue
-
-                    if sym.startswith("__begin__"):
-                        tag = sym[9:]
-                        tag_symbols = []
-                    elif sym.startswith("__end__"):
-                        assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
-
-                        if not args.dont_replace and (":" in tag):
-                            # Use replacement string in the tag
-                            tag, tag_value = tag.split(":", maxsplit=1)
-                        else:
-                            # Use text between begin/end
-                            tag_value = " ".join(tag_symbols)
-
-                        intent["entities"].append(
-                            {"entity": tag, "value": tag_value}
-                        )
-
-                        tag = None
-                    elif tag:
-                        tag_symbols.append(sym)
-                        out_symbols.append(sym)
-                    else:
-                        out_symbols.append(sym)
-
-            intent["text"] = " ".join(out_symbols)
-        except:
-            # Error, assign blank result
-            logging.exception(sentence)
-
-        results[sentence] = intent
+        results[sentence] = fstaccept(
+            grammar_fst,
+            sentence,
+            intent_name=intent_name,
+            replace_tags=not args.dont_replace,
+        )
 
     json.dump(results, sys.stdout)
+
+
+# -----------------------------------------------------------------------------
+
+
+def fstaccept(in_fst, sentence, intent_name="", replace_tags=True):
+    """Recognizes an intent from a sentence using a FST."""
+
+    # Assume lower case, white-space separated tokens
+    sentence = sentence.strip().lower()
+    words = re.split(r"\s+", sentence)
+    intent = empty_intent()
+
+    try:
+        out_fst = apply_fst(words, in_fst)
+
+        # Get output symbols
+        out_symbols = []
+        tag_symbols = []
+        tag = None
+        for state in out_fst.states():
+            for arc in out_fst.arcs(state):
+                sym = out_fst.output_symbols().find(arc.olabel).decode()
+                if sym == "<eps>":
+                    continue
+
+                if sym.startswith("__begin__"):
+                    tag = sym[9:]
+                    tag_symbols = []
+                elif sym.startswith("__end__"):
+                    assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
+
+                    if replace_tags and (":" in tag):
+                        # Use replacement string in the tag
+                        tag, tag_value = tag.split(":", maxsplit=1)
+                    else:
+                        # Use text between begin/end
+                        tag_value = " ".join(tag_symbols)
+
+                    intent["entities"].append({"entity": tag, "value": tag_value})
+
+                    tag = None
+                elif tag:
+                    tag_symbols.append(sym)
+                    out_symbols.append(sym)
+                else:
+                    out_symbols.append(sym)
+
+        intent["text"] = " ".join(out_symbols)
+
+        if len(out_symbols) > 0:
+            intent["intent"]["name"] = intent_name
+            intent["intent"]["confidence"] = 1
+    except:
+        # Error, assign blank result
+        logging.exception(sentence)
+
+    return intent
 
 
 # -----------------------------------------------------------------------------
