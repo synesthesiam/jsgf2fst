@@ -1,0 +1,4 @@
+#JSGF V1.0 UTF-8 en;
+grammar ChangeLight;
+
+public <ChangeLight> = (turn (on | off){state}) | (<ChangeLightColor.ChangeLightColor>);

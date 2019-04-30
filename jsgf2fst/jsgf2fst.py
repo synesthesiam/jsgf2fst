@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import shutil
+import collections
 import logging
 
 import jsgf
@@ -33,16 +34,11 @@ def main():
         logging.debug(f"Parsing {grammar_path}")
         grammars.append(jsgf.parse_grammar_file(grammar_path))
 
-    # Directory where slot values are stored ($slot_name -> dir/slot_name)
-    slots = {}
-
     if not args.no_slots and args.slots_dir:
-        # Load all slot values
-        for slot_path in os.listdir(args.slots_dir):
-            slot_name = os.path.splitext(slot_path)[0]
-            slot_path = os.path.join(args.slots_dir, slot_path)
-            with open(slot_path, "r") as slot_file:
-                slots[slot_name] = [line.strip().lower() for line in slot_file]
+        # Directory where slot values are stored ($slot_name -> dir/slot_name)
+        slots = read_slots(args.slots_dir)
+    else:
+        slots = {}  # no slots
 
     # Convert to FSTs
     grammar_fsts = jsgf2fst(grammars, slots=slots)
@@ -60,6 +56,10 @@ def main():
 def jsgf2fst(grammars, slots={}):
     """Converts JSGF grammars to FSTs.
     Returns dictionary mapping grammar names to FSTs."""
+
+    is_list = isinstance(grammars, collections.Iterable)
+    if not is_list:
+        grammars = [grammars]
 
     # grammar name -> fst
     grammar_fsts = {}
@@ -133,11 +133,27 @@ def jsgf2fst(grammars, slots={}):
             grammar_fst = compiler.compile()
             grammar_fsts[grammar.name] = grammar_fst
 
+    if not is_list:
+        # Single input, single output
+        return next(iter(grammar_fsts.values()))
+
     return grammar_fsts
 
 
 # -----------------------------------------------------------------------------
 
+def read_slots(slots_dir):
+    """Load slot values (lines) from all files in the given directory."""
+    slots = {}
+    for slot_path in os.listdir(slots_dir):
+        slot_name = os.path.splitext(slot_path)[0]
+        slot_path = os.path.join(slots_dir, slot_path)
+        with open(slot_path, "r") as slot_file:
+            slots[slot_name] = [line.strip().lower() for line in slot_file]
+
+    return slots
+
+# -----------------------------------------------------------------------------
 
 def replace_tags_and_rules(rule, rule_map, slots={}):
     """Replace named rules from other grammars with their expansions.
