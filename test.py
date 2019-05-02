@@ -1,3 +1,4 @@
+import io
 import unittest
 import logging
 import tempfile
@@ -5,7 +6,7 @@ import tempfile
 logging.basicConfig(level=logging.DEBUG)
 
 import jsgf
-from jsgf2fst import jsgf2fst, fstaccept, read_slots, fst2arpa
+from jsgf2fst import jsgf2fst, fstaccept, read_slots, fst2arpa, fstprintall
 
 
 class Jsgf2FstTestCase(unittest.TestCase):
@@ -109,6 +110,17 @@ class Jsgf2FstTestCase(unittest.TestCase):
             fst_file.seek(0)
             arpa = fst2arpa(fst_file.name)
             assert len(arpa) > 0, "Empty ARPA"
+
+    # -------------------------------------------------------------------------
+
+    def test_printall(self):
+        grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
+        fst = jsgf2fst(grammar)
+        assert len(list(fst.states())) > 0, "Empty FST"
+
+        with io.StringIO() as sentences_file:
+            fstprintall(fst, out_file=sentences_file)
+            open("test.txt", "w").write(sentences_file.getvalue())
 
 
 # -----------------------------------------------------------------------------

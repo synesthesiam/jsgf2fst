@@ -98,6 +98,40 @@ def fstaccept(in_fst, sentence, intent_name="", replace_tags=True):
 
 # -----------------------------------------------------------------------------
 
+
+def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, eps=0):
+    path = path or []
+    state = state or in_fst.start()
+    zero_weight = zero_weight or fst.Weight.Zero(in_fst.weight_type())
+
+    for arc in in_fst.arcs(state):
+        path.append(arc)
+
+        if in_fst.final(arc.nextstate) != zero_weight:
+            # Final state
+            out_syms = in_fst.output_symbols()
+            for p_arc in path:
+                if p_arc.olabel != eps:
+                    osym = out_syms.find(p_arc.olabel).decode()
+                    print(osym, "", end="", file=out_file)
+
+            print("", file=out_file)
+        else:
+            # Non-final state
+            fstprintall(
+                in_fst,
+                out_file=out_file,
+                state=arc.nextstate,
+                path=path,
+                zero_weight=zero_weight,
+                eps=eps,
+            )
+
+        path.pop()
+
+
+# -----------------------------------------------------------------------------
+
 # From:
 # https://stackoverflow.com/questions/9390536/how-do-you-even-give-an-openfst-made-fst-input-where-does-the-output-go
 
