@@ -20,7 +20,7 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def fst2arpa(fst_path):
+def fst2arpa(fst_path, arpa_path=None):
     """Converts a FST to ARPA model using opengrm."""
 
     for tool in ["ngramcount", "ngrammake", "ngramprint"]:
@@ -54,7 +54,11 @@ def fst2arpa(fst_path):
             cmd = ["ngramprint", "--ARPA", model_file.name]
             logging.debug(cmd)
 
-            return subprocess.check_output(cmd)
+            if arpa_path is None:
+                return subprocess.check_output(cmd)
+            else:
+                cmd.append(arpa_path)
+                subprocess.check_call(cmd)
 
 
 # -----------------------------------------------------------------------------

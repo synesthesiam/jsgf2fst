@@ -55,51 +55,11 @@ def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
         # Get output symbols
         out_sentences = fstprintall(out_fst)
         for out_sentence in out_sentences:
-            out_symbols = []
-            tag_symbols = []
-            tag = None
-            intent = empty_intent()
             out_intent_name = intent_name
-
-            for sym in out_sentence:
-                if sym == "<eps>":
-                    continue
-
-                if sym.startswith("__begin__"):
-                    # Begin tag
-                    tag = sym[9:]
-                    tag_symbols = []
-                elif sym.startswith("__end__"):
-                    # End tag
-                    assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
-
-                    if replace_tags and (":" in tag):
-                        # Use replacement string in the tag
-                        tag, tag_value = tag.split(":", maxsplit=1)
-                    else:
-                        # Use text between begin/end
-                        tag_value = " ".join(tag_symbols)
-
-                    intent["entities"].append({"entity": tag, "value": tag_value})
-
-                    tag = None
-                elif sym.startswith("__label__"):
-                    # Intent label
-                    out_intent_name = sym[9:]
-                elif tag:
-                    # Inside tag
-                    tag_symbols.append(sym)
-                    out_symbols.append(sym)
-                else:
-                    # Outside tag
-                    out_symbols.append(sym)
-
-            intent["text"] = " ".join(out_symbols)
-
-            if len(out_symbols) > 0:
-                intent["intent"]["name"] = out_intent_name or ""
-                intent["intent"]["confidence"] = 1 / len(out_sentences)
-
+            intent = symbols2intent(
+                out_sentence, intent_name=out_intent_name, replace_tags=replace_tags
+            )
+            intent["intent"]["confidence"] /= len(out_sentence)
             intents.append(intent)
     except:
         # Error, assign blank result
@@ -111,7 +71,70 @@ def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
 # -----------------------------------------------------------------------------
 
 
-def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, eps=0):
+def symbols2intent(
+    symbols, eps="<eps>", intent=None, intent_name=None, replace_tags=True
+):
+    intent = intent or empty_intent()
+    tag = None
+    tag_symbols = []
+    out_symbols = []
+
+    for sym in symbols:
+        if sym == "<eps>":
+            continue
+
+        if sym.startswith("__begin__"):
+            # Begin tag
+            tag = sym[9:]
+            tag_symbols = []
+        elif sym.startswith("__end__"):
+            # End tag
+            assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
+
+            if replace_tags and (":" in tag):
+                # Use replacement string in the tag
+                tag, tag_value = tag.split(":", maxsplit=1)
+            else:
+                # Use text between begin/end
+                tag_value = " ".join(tag_symbols)
+
+            intent["entities"].append({"entity": tag, "value": tag_value})
+
+            tag = None
+        elif sym.startswith("__label__"):
+            # Intent label
+            if intent_name is None:
+                intent_name = sym[9:]
+        elif tag:
+            # Inside tag
+            tag_symbols.append(sym)
+            out_symbols.append(sym)
+        else:
+            # Outside tag
+            out_symbols.append(sym)
+
+    intent["text"] = " ".join(out_symbols)
+    intent["tokens"] = out_symbols
+
+    if len(out_symbols) > 0:
+        intent["intent"]["name"] = intent_name or ""
+        intent["intent"]["confidence"] = 1
+
+    return intent
+
+
+# -----------------------------------------------------------------------------
+
+
+def fstprintall(
+    in_fst,
+    out_file=None,
+    exclude_meta=True,
+    state=None,
+    path=None,
+    zero_weight=None,
+    eps=0,
+):
     sentences = []
     path = path or []
     state = state or in_fst.start()
@@ -127,6 +150,9 @@ def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, 
             for p_arc in path:
                 if p_arc.olabel != eps:
                     osym = out_syms.find(p_arc.olabel).decode()
+                    if exclude_meta and osym.startswith("__"):
+                        continue  # skip __label__, etc.
+
                     if out_file:
                         print(osym, "", end="", file=out_file)
                     else:
@@ -146,6 +172,7 @@ def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, 
                     path=path,
                     zero_weight=zero_weight,
                     eps=eps,
+                    exclude_meta=exclude_meta
                 )
             )
 
