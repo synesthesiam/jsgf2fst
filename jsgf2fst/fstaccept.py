@@ -41,31 +41,36 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def fstaccept(in_fst, sentence, intent_name="", replace_tags=True):
+def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
     """Recognizes an intent from a sentence using a FST."""
 
     # Assume lower case, white-space separated tokens
     sentence = sentence.strip().lower()
     words = re.split(r"\s+", sentence)
-    intent = empty_intent()
+    intents = []
 
     try:
         out_fst = apply_fst(words, in_fst)
 
         # Get output symbols
-        out_symbols = []
-        tag_symbols = []
-        tag = None
-        for state in out_fst.states():
-            for arc in out_fst.arcs(state):
-                sym = out_fst.output_symbols().find(arc.olabel).decode()
+        out_sentences = fstprintall(out_fst)
+        for out_sentence in out_sentences:
+            out_symbols = []
+            tag_symbols = []
+            tag = None
+            intent = empty_intent()
+            out_intent_name = intent_name
+
+            for sym in out_sentence:
                 if sym == "<eps>":
                     continue
 
                 if sym.startswith("__begin__"):
+                    # Begin tag
                     tag = sym[9:]
                     tag_symbols = []
                 elif sym.startswith("__end__"):
+                    # End tag
                     assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
 
                     if replace_tags and (":" in tag):
@@ -78,28 +83,36 @@ def fstaccept(in_fst, sentence, intent_name="", replace_tags=True):
                     intent["entities"].append({"entity": tag, "value": tag_value})
 
                     tag = None
+                elif sym.startswith("__label__"):
+                    # Intent label
+                    out_intent_name = sym[9:]
                 elif tag:
+                    # Inside tag
                     tag_symbols.append(sym)
                     out_symbols.append(sym)
                 else:
+                    # Outside tag
                     out_symbols.append(sym)
 
-        intent["text"] = " ".join(out_symbols)
+            intent["text"] = " ".join(out_symbols)
 
-        if len(out_symbols) > 0:
-            intent["intent"]["name"] = intent_name
-            intent["intent"]["confidence"] = 1
+            if len(out_symbols) > 0:
+                intent["intent"]["name"] = out_intent_name or ""
+                intent["intent"]["confidence"] = 1 / len(out_sentences)
+
+            intents.append(intent)
     except:
         # Error, assign blank result
         logging.exception(sentence)
 
-    return intent
+    return intents
 
 
 # -----------------------------------------------------------------------------
 
 
 def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, eps=0):
+    sentences = []
     path = path or []
     state = state or in_fst.start()
     zero_weight = zero_weight or fst.Weight.Zero(in_fst.weight_type())
@@ -110,24 +123,35 @@ def fstprintall(in_fst, out_file=None, state=None, path=None, zero_weight=None, 
         if in_fst.final(arc.nextstate) != zero_weight:
             # Final state
             out_syms = in_fst.output_symbols()
+            sentence = []
             for p_arc in path:
                 if p_arc.olabel != eps:
                     osym = out_syms.find(p_arc.olabel).decode()
-                    print(osym, "", end="", file=out_file)
+                    if out_file:
+                        print(osym, "", end="", file=out_file)
+                    else:
+                        sentence.append(osym)
 
-            print("", file=out_file)
+            if out_file:
+                print("", file=out_file)
+            else:
+                sentences.append(sentence)
         else:
             # Non-final state
-            fstprintall(
-                in_fst,
-                out_file=out_file,
-                state=arc.nextstate,
-                path=path,
-                zero_weight=zero_weight,
-                eps=eps,
+            sentences.extend(
+                fstprintall(
+                    in_fst,
+                    out_file=out_file,
+                    state=arc.nextstate,
+                    path=path,
+                    zero_weight=zero_weight,
+                    eps=eps,
+                )
             )
 
         path.pop()
+
+    return sentences
 
 
 # -----------------------------------------------------------------------------

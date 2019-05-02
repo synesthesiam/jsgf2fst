@@ -1,4 +1,5 @@
 import io
+from glob import glob
 import unittest
 import logging
 import tempfile
@@ -6,7 +7,14 @@ import tempfile
 logging.basicConfig(level=logging.DEBUG)
 
 import jsgf
-from jsgf2fst import jsgf2fst, fstaccept, read_slots, fst2arpa, fstprintall
+from jsgf2fst import (
+    jsgf2fst,
+    fstaccept,
+    read_slots,
+    fst2arpa,
+    fstprintall,
+    make_intent_fst,
+)
 
 
 class Jsgf2FstTestCase(unittest.TestCase):
@@ -23,11 +31,13 @@ class Jsgf2FstTestCase(unittest.TestCase):
         fst = jsgf2fst(grammar)
         assert len(list(fst.states())) > 0, "Empty FST"
 
-        intent = fstaccept(
+        intents = fstaccept(
             fst,
             "set a timer for one hour and ten minutes and forty two seconds",
             intent_name="SetTimer",
         )
+
+        intent = intents[0]
 
         logging.debug(intent)
         assert intent["intent"]["name"] == "SetTimer"
@@ -50,7 +60,8 @@ class Jsgf2FstTestCase(unittest.TestCase):
         fst = jsgf2fst(grammar, slots=slots)
         assert len(list(fst.states())) > 0, "Empty FST"
 
-        intent = fstaccept(fst, "set color to orange", intent_name="ChangeLightColor")
+        intents = fstaccept(fst, "set color to orange", intent_name="ChangeLightColor")
+        intent = intents[0]
 
         logging.debug(intent)
         assert intent["intent"]["name"] == "ChangeLightColor"
@@ -74,7 +85,8 @@ class Jsgf2FstTestCase(unittest.TestCase):
         assert len(list(fst.states())) > 0, "Empty FST"
 
         # Change state
-        intent = fstaccept(fst, "turn off", intent_name="ChangeLight")
+        intents = fstaccept(fst, "turn off", intent_name="ChangeLight")
+        intent = intents[0]
 
         logging.debug(intent)
         assert intent["intent"]["name"] == "ChangeLight"
@@ -86,7 +98,8 @@ class Jsgf2FstTestCase(unittest.TestCase):
         assert ev["value"] == "off"
 
         # Change color
-        intent = fstaccept(fst, "set color to orange", intent_name="ChangeLight")
+        intents = fstaccept(fst, "set color to orange", intent_name="ChangeLight")
+        intent = intents[0]
 
         logging.debug(intent)
         assert intent["intent"]["name"] == "ChangeLight"
@@ -115,12 +128,56 @@ class Jsgf2FstTestCase(unittest.TestCase):
 
     def test_printall(self):
         grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
-        fst = jsgf2fst(grammar)
+        slots = read_slots("test/slots")
+        fst = jsgf2fst(grammar, slots=slots)
         assert len(list(fst.states())) > 0, "Empty FST"
+        sentences = fstprintall(fst)
+        assert len(sentences) == 6, len(sentences)
 
-        with io.StringIO() as sentences_file:
-            fstprintall(fst, out_file=sentences_file)
-            open("test.txt", "w").write(sentences_file.getvalue())
+    # -------------------------------------------------------------------------
+
+    def test_intent_fst(self):
+        grammars = [jsgf.parse_grammar_file(p) for p in glob("test/*.gram")]
+        slots = read_slots("test/slots")
+        grammar_fsts = jsgf2fst(grammars, slots=slots)
+        intent_fst = make_intent_fst(grammar_fsts)
+
+        # Check timer input
+        intents = fstaccept(
+            intent_fst, "set a timer for one hour and ten minutes and forty two seconds"
+        )
+
+        intent = intents[0]
+
+        logging.debug(intent)
+        assert intent["intent"]["name"] == "SetTimer"
+        assert intent["intent"]["confidence"] == 1
+        assert len(intent["entities"]) == 3
+
+        expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
+        for ev in intent["entities"]:
+            entity = ev["entity"]
+            if (entity in expected) and (ev["value"] == expected[entity]):
+                expected.pop(entity)
+
+        assert len(expected) == 0, expected
+
+        # Verify multiple interpretations
+        intents = fstaccept(
+            intent_fst, "set color to purple"
+        )
+
+        logging.debug(intents)
+        assert len(intents) == 2, "Expected multiple intents"
+
+        for intent in intents:
+            assert intent["intent"]["name"] in ["ChangeLight", "ChangeLightColor"]
+            assert intent["intent"]["confidence"] < 1
+            assert len(intent["entities"]) == 1
+
+            ev = intent["entities"][0]
+            assert ev["entity"] == "color"
+            assert ev["value"] == "purple"
 
 
 # -----------------------------------------------------------------------------

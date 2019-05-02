@@ -142,6 +142,103 @@ def jsgf2fst(grammars, slots={}):
 
 # -----------------------------------------------------------------------------
 
+
+def make_intent_fst(grammar_fsts):
+    """Merges grammar FSTs created with jsgf2fst into a single acceptor FST."""
+    intent_fst = fst.Fst()
+    all_symbols = fst.SymbolTable()
+    all_symbols.add_symbol("<eps>", 0)
+    eps = 0
+
+    # Merge symbols from all FSTs
+    tables = [
+        t
+        for gf in grammar_fsts.values()
+        for t in [gf.input_symbols(), gf.output_symbols()]
+    ]
+
+    for table in tables:
+        for i in range(table.num_symbols()):
+            all_symbols.add_symbol(table.find(i).decode())
+
+    # Add __label__ for each intent
+    for intent_name in grammar_fsts.keys():
+        all_symbols.add_symbol(f"__label__{intent_name}")
+
+    intent_fst.set_input_symbols(all_symbols)
+    intent_fst.set_output_symbols(all_symbols)
+
+    # Create start/final states
+    start_state = intent_fst.add_state()
+    intent_fst.set_start(start_state)
+
+    final_state = intent_fst.add_state()
+    intent_fst.set_final(final_state)
+
+    # Merge FSTs in
+    for intent_name, grammar_fst in grammar_fsts.items():
+        label_sym = all_symbols.find(f"__label__{intent_name}")
+        replace_and_patch(intent_fst, start_state, final_state, grammar_fst, label_sym)
+
+    return intent_fst.rmepsilon()
+
+
+def replace_and_patch(
+    outer_fst, outer_start_state, outer_final_state, inner_fst, label_sym, eps=0
+):
+    """Copies an inner FST into an outer FST, creating states and mapping symbols.
+    Creates arcs from outer start/final states to inner start/final states."""
+
+    in_symbols = outer_fst.input_symbols()
+    out_symbols = outer_fst.output_symbols()
+    inner_zero = fst.Weight.Zero(inner_fst.weight_type())
+    outer_one = fst.Weight.One(outer_fst.weight_type())
+
+    state_map = {}
+    in_symbol_map = {}
+    out_symbol_map = {}
+
+    for i in range(inner_fst.output_symbols().num_symbols()):
+        sym_str = inner_fst.output_symbols().find(i).decode()
+        out_symbol_map[i] = out_symbols.find(sym_str)
+
+    for i in range(inner_fst.input_symbols().num_symbols()):
+        sym_str = inner_fst.input_symbols().find(i).decode()
+        in_symbol_map[i] = in_symbols.find(sym_str)
+
+    # Create states in outer FST
+    for inner_state in inner_fst.states():
+        state_map[inner_state] = outer_fst.add_state()
+
+    # Create arcs in outer FST
+    for inner_state in inner_fst.states():
+        if inner_state == inner_fst.start():
+            outer_fst.add_arc(
+                outer_start_state,
+                fst.Arc(eps, label_sym, outer_one, state_map[inner_state]),
+            )
+
+        for inner_arc in inner_fst.arcs(inner_state):
+            outer_fst.add_arc(
+                state_map[inner_state],
+                fst.Arc(
+                    in_symbol_map[inner_arc.ilabel],
+                    out_symbol_map[inner_arc.olabel],
+                    outer_one,
+                    state_map[inner_arc.nextstate],
+                ),
+            )
+
+            if inner_fst.final(inner_arc.nextstate) != inner_zero:
+                outer_fst.add_arc(
+                    state_map[inner_arc.nextstate],
+                    fst.Arc(eps, eps, outer_one, outer_final_state),
+                )
+
+
+# -----------------------------------------------------------------------------
+
+
 def read_slots(slots_dir):
     """Load slot values (lines) from all files in the given directory."""
     slots = {}
@@ -153,7 +250,9 @@ def read_slots(slots_dir):
 
     return slots
 
+
 # -----------------------------------------------------------------------------
+
 
 def replace_tags_and_rules(rule, rule_map, slots={}):
     """Replace named rules from other grammars with their expansions.
