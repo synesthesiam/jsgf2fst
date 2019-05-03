@@ -53,13 +53,13 @@ def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
         out_fst = apply_fst(words, in_fst)
 
         # Get output symbols
-        out_sentences = fstprintall(out_fst)
+        out_sentences = fstprintall(out_fst, exclude_meta=False)
         for out_sentence in out_sentences:
             out_intent_name = intent_name
             intent = symbols2intent(
                 out_sentence, intent_name=out_intent_name, replace_tags=replace_tags
             )
-            intent["intent"]["confidence"] /= len(out_sentence)
+            intent["intent"]["confidence"] /= len(out_sentences)
             intents.append(intent)
     except:
         # Error, assign blank result
@@ -172,7 +172,7 @@ def fstprintall(
                     path=path,
                     zero_weight=zero_weight,
                     eps=eps,
-                    exclude_meta=exclude_meta
+                    exclude_meta=exclude_meta,
                 )
             )
 

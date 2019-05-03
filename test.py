@@ -29,7 +29,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
     def test_timer(self):
         grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
         fst = jsgf2fst(grammar)
-        assert len(list(fst.states())) > 0, "Empty FST"
+        self.assertGreater(len(list(fst.states())), 0)
 
         intents = fstaccept(
             fst,
@@ -40,9 +40,9 @@ class Jsgf2FstTestCase(unittest.TestCase):
         intent = intents[0]
 
         logging.debug(intent)
-        assert intent["intent"]["name"] == "SetTimer"
-        assert intent["intent"]["confidence"] == 1
-        assert len(intent["entities"]) == 3
+        self.assertEqual(intent["intent"]["name"], "SetTimer")
+        self.assertEqual(intent["intent"]["confidence"], 1)
+        self.assertEqual(len(intent["entities"]), 3)
 
         expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
         for ev in intent["entities"]:
@@ -50,7 +50,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
             if (entity in expected) and (ev["value"] == expected[entity]):
                 expected.pop(entity)
 
-        assert len(expected) == 0, expected
+        self.assertDictEqual(expected, {})
 
     # -------------------------------------------------------------------------
 
@@ -58,19 +58,19 @@ class Jsgf2FstTestCase(unittest.TestCase):
         grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
         slots = read_slots("test/slots")
         fst = jsgf2fst(grammar, slots=slots)
-        assert len(list(fst.states())) > 0, "Empty FST"
+        self.assertGreater(len(list(fst.states())), 0)
 
         intents = fstaccept(fst, "set color to orange", intent_name="ChangeLightColor")
         intent = intents[0]
 
         logging.debug(intent)
-        assert intent["intent"]["name"] == "ChangeLightColor"
-        assert intent["intent"]["confidence"] == 1
-        assert len(intent["entities"]) == 1
+        self.assertEqual(intent["intent"]["name"], "ChangeLightColor")
+        self.assertEqual(intent["intent"]["confidence"], 1)
+        self.assertEqual(len(intent["entities"]), 1)
 
         ev = intent["entities"][0]
-        assert ev["entity"] == "color"
-        assert ev["value"] == "orange"
+        self.assertEqual(ev["entity"], "color")
+        self.assertEqual(ev["value"], "orange")
 
     # -------------------------------------------------------------------------
 
@@ -82,47 +82,47 @@ class Jsgf2FstTestCase(unittest.TestCase):
         slots = read_slots("test/slots")
         fsts = jsgf2fst(grammars, slots=slots)
         fst = fsts["ChangeLight"]
-        assert len(list(fst.states())) > 0, "Empty FST"
+        self.assertGreater(len(list(fst.states())), 0)
 
         # Change state
         intents = fstaccept(fst, "turn off", intent_name="ChangeLight")
         intent = intents[0]
 
         logging.debug(intent)
-        assert intent["intent"]["name"] == "ChangeLight"
-        assert intent["intent"]["confidence"] == 1
-        assert len(intent["entities"]) == 1
+        self.assertEqual(intent["intent"]["name"], "ChangeLight")
+        self.assertEqual(intent["intent"]["confidence"], 1)
+        self.assertEqual(len(intent["entities"]), 1)
 
         ev = intent["entities"][0]
-        assert ev["entity"] == "state"
-        assert ev["value"] == "off"
+        self.assertEqual(ev["entity"], "state")
+        self.assertEqual(ev["value"], "off")
 
         # Change color
         intents = fstaccept(fst, "set color to orange", intent_name="ChangeLight")
         intent = intents[0]
 
         logging.debug(intent)
-        assert intent["intent"]["name"] == "ChangeLight"
-        assert intent["intent"]["confidence"] == 1
-        assert len(intent["entities"]) == 1
+        self.assertEqual(intent["intent"]["name"], "ChangeLight")
+        self.assertEqual(intent["intent"]["confidence"], 1)
+        self.assertEqual(len(intent["entities"]), 1)
 
         ev = intent["entities"][0]
-        assert ev["entity"] == "color"
-        assert ev["value"] == "orange"
+        self.assertEqual(ev["entity"], "color")
+        self.assertEqual(ev["value"], "orange")
 
     # -------------------------------------------------------------------------
 
     def test_arpa(self):
         grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
         fst = jsgf2fst(grammar)
-        assert len(list(fst.states())) > 0, "Empty FST"
+        self.assertGreater(len(list(fst.states())), 0)
 
         with tempfile.NamedTemporaryFile(mode="wb+") as fst_file:
             fst.write(fst_file.name)
 
             fst_file.seek(0)
             arpa = fst2arpa(fst_file.name)
-            assert len(arpa) > 0, "Empty ARPA"
+            self.assertGreater(len(arpa), 0)
 
     # -------------------------------------------------------------------------
 
@@ -130,9 +130,9 @@ class Jsgf2FstTestCase(unittest.TestCase):
         grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
         slots = read_slots("test/slots")
         fst = jsgf2fst(grammar, slots=slots)
-        assert len(list(fst.states())) > 0, "Empty FST"
+        self.assertGreater(len(list(fst.states())), 0)
         sentences = fstprintall(fst)
-        assert len(sentences) == 6, len(sentences)
+        self.assertEqual(len(sentences), 6)
 
     # -------------------------------------------------------------------------
 
@@ -150,9 +150,9 @@ class Jsgf2FstTestCase(unittest.TestCase):
         intent = intents[0]
 
         logging.debug(intent)
-        assert intent["intent"]["name"] == "SetTimer"
-        assert intent["intent"]["confidence"] == 1
-        assert len(intent["entities"]) == 3
+        self.assertEqual(intent["intent"]["name"], "SetTimer")
+        self.assertEqual(intent["intent"]["confidence"], 1)
+        self.assertEqual(len(intent["entities"]), 3)
 
         expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
         for ev in intent["entities"]:
@@ -160,7 +160,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
             if (entity in expected) and (ev["value"] == expected[entity]):
                 expected.pop(entity)
 
-        assert len(expected) == 0, expected
+        self.assertDictEqual(expected, {})
 
         # Verify multiple interpretations
         intents = fstaccept(
@@ -168,16 +168,16 @@ class Jsgf2FstTestCase(unittest.TestCase):
         )
 
         logging.debug(intents)
-        assert len(intents) == 2, "Expected multiple intents"
+        self.assertEqual(len(intents), 2)
 
         for intent in intents:
-            assert intent["intent"]["name"] in ["ChangeLight", "ChangeLightColor"]
-            assert intent["intent"]["confidence"] < 1
-            assert len(intent["entities"]) == 1
+            self.assertIn(intent["intent"]["name"], ["ChangeLight", "ChangeLightColor"])
+            self.assertEqual(intent["intent"]["confidence"], 0.5)
+            self.assertEqual(len(intent["entities"]), 1)
 
             ev = intent["entities"][0]
-            assert ev["entity"] == "color"
-            assert ev["value"] == "purple"
+            self.assertEqual(ev["entity"], "color")
+            self.assertEqual(ev["value"], "purple")
 
 
 # -----------------------------------------------------------------------------
