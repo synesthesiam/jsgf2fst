@@ -12,6 +12,7 @@ setuptools.setup(
     author_email="hansen.mike@gmail.com",
     url="https://github.com/synesthesiam/jsgf2fst",
     packages=setuptools.find_packages(),
+    package_data={"jsgf2fst": ["py.typed"]},
     install_requires=["openfst==1.6.1", "pyjsgf==1.6.0"],
     classifiers=["Programming Language :: Python :: 3"],
     long_description=long_description,
