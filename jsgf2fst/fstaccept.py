@@ -5,11 +5,12 @@ import argparse
 import re
 import json
 import logging
+from typing import Dict, Any, List, Optional, TextIO, Mapping
 
 import pywrapfst as fst
 
 
-def main():
+def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser("fstaccept")
@@ -41,7 +42,12 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
+def fstaccept(
+    in_fst: fst.Fst,
+    sentence: str,
+    intent_name: Optional[str] = None,
+    replace_tags: bool = True,
+) -> List[Dict[str, Any]]:
     """Recognizes an intent from a sentence using a FST."""
 
     # Assume lower case, white-space separated tokens
@@ -72,12 +78,16 @@ def fstaccept(in_fst, sentence, intent_name=None, replace_tags=True):
 
 
 def symbols2intent(
-    symbols, eps="<eps>", intent=None, intent_name=None, replace_tags=True
-):
+    symbols: List[str],
+    eps: str = "<eps>",
+    intent: Optional[Dict[str, Any]] = None,
+    intent_name: Optional[str] = None,
+    replace_tags: bool = True,
+) -> Dict[str, Any]:
     intent = intent or empty_intent()
     tag = None
-    tag_symbols = []
-    out_symbols = []
+    tag_symbols: List[str] = []
+    out_symbols: List[str] = []
 
     for sym in symbols:
         if sym == "<eps>":
@@ -127,14 +137,14 @@ def symbols2intent(
 
 
 def fstprintall(
-    in_fst,
-    out_file=None,
-    exclude_meta=True,
-    state=None,
-    path=None,
-    zero_weight=None,
-    eps=0,
-):
+    in_fst: fst.Fst,
+    out_file: Optional[TextIO] = None,
+    exclude_meta: bool = True,
+    state: Optional[int] = None,
+    path: Optional[List[fst.Arc]] = None,
+    zero_weight: Optional[fst.Weight] = None,
+    eps: int = 0,
+) -> List[List[str]]:
     sentences = []
     path = path or []
     state = state or in_fst.start()
@@ -187,7 +197,12 @@ def fstprintall(
 # https://stackoverflow.com/questions/9390536/how-do-you-even-give-an-openfst-made-fst-input-where-does-the-output-go
 
 
-def linear_fst(elements, automata_op, keep_isymbols=True, **kwargs):
+def linear_fst(
+    elements: List[str],
+    automata_op: fst.Fst,
+    keep_isymbols: bool = True,
+    **kwargs: Mapping[Any, Any],
+) -> fst.Fst:
     """Produce a linear automata."""
     compiler = fst.Compiler(
         isymbols=automata_op.input_symbols().copy(),
@@ -203,7 +218,12 @@ def linear_fst(elements, automata_op, keep_isymbols=True, **kwargs):
     return compiler.compile()
 
 
-def apply_fst(elements, automata_op, is_project=True, **kwargs):
+def apply_fst(
+    elements: List[str],
+    automata_op: fst.Fst,
+    is_project: bool = True,
+    **kwargs: Mapping[Any, Any],
+) -> fst.Fst:
     """Compose a linear automata generated from `elements` with `automata_op`.
 
     Args:
@@ -213,7 +233,7 @@ def apply_fst(elements, automata_op, is_project=True, **kwargs):
         kwargs:
             Additional arguments to the compiler of the linear automata .
     """
-    linear_automata = linear_fst(elements, automata_op, **kwargs)
+    linear_automata = linear_fst(elements, automata_op, keep_isymbols=True, **kwargs)
     out = fst.compose(linear_automata, automata_op)
     if is_project:
         out.project(project_output=True)
@@ -223,7 +243,7 @@ def apply_fst(elements, automata_op, is_project=True, **kwargs):
 # -----------------------------------------------------------------------------
 
 
-def empty_intent():
+def empty_intent() -> Dict[str, Any]:
     return {"text": "", "intent": {"name": "", "confidence": 0}, "entities": []}
 
 

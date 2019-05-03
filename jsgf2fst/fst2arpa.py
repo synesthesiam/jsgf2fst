@@ -5,9 +5,11 @@ import shutil
 import tempfile
 import subprocess
 import logging
+import argparse
+from typing import Optional, Any
 
 
-def main():
+def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
 
     parser = argparse.ArgumentParser("fst2arpa")
@@ -20,7 +22,7 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def fst2arpa(fst_path, arpa_path=None):
+def fst2arpa(fst_path: str, arpa_path: Optional[str] = None) -> Any:
     """Converts a FST to ARPA model using opengrm."""
 
     for tool in ["ngramcount", "ngrammake", "ngramprint"]:

@@ -8,12 +8,14 @@ import tempfile
 import shutil
 import collections
 import logging
+from typing import List, Dict, Union, Any
 
 import jsgf
+from jsgf.rules import Rule
 import pywrapfst as fst
 
 
-def main():
+def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
 
     parser = argparse.ArgumentParser("jsgf2fst")
@@ -53,7 +55,9 @@ def main():
 # -----------------------------------------------------------------------------
 
 
-def jsgf2fst(grammars, slots={}):
+def jsgf2fst(
+    grammars: Union[jsgf.Grammar, List[jsgf.Grammar]], slots: Dict[str, List[str]] = {}
+) -> Dict[str, fst.Fst]:
     """Converts JSGF grammars to FSTs.
     Returns dictionary mapping grammar names to FSTs."""
 
@@ -143,7 +147,7 @@ def jsgf2fst(grammars, slots={}):
 # -----------------------------------------------------------------------------
 
 
-def make_intent_fst(grammar_fsts):
+def make_intent_fst(grammar_fsts: Dict[str, fst.Fst]) -> fst.Fst:
     """Merges grammar FSTs created with jsgf2fst into a single acceptor FST."""
     intent_fst = fst.Fst()
     all_symbols = fst.SymbolTable()
@@ -184,8 +188,13 @@ def make_intent_fst(grammar_fsts):
 
 
 def replace_and_patch(
-    outer_fst, outer_start_state, outer_final_state, inner_fst, label_sym, eps=0
-):
+    outer_fst: fst.Fst,
+    outer_start_state: int,
+    outer_final_state: int,
+    inner_fst: fst.Fst,
+    label_sym: int,
+    eps: int = 0,
+) -> None:
     """Copies an inner FST into an outer FST, creating states and mapping symbols.
     Creates arcs from outer start/final states to inner start/final states."""
 
@@ -239,7 +248,7 @@ def replace_and_patch(
 # -----------------------------------------------------------------------------
 
 
-def read_slots(slots_dir):
+def read_slots(slots_dir: str) -> Dict[str, List[str]]:
     """Load slot values (lines) from all files in the given directory."""
     slots = {}
     for slot_path in os.listdir(slots_dir):
@@ -254,7 +263,9 @@ def read_slots(slots_dir):
 # -----------------------------------------------------------------------------
 
 
-def replace_tags_and_rules(rule, rule_map, slots={}):
+def replace_tags_and_rules(
+    rule: Rule, rule_map: Dict[str, Rule], slots: Dict[str, List[str]] = {}
+) -> Rule:
     """Replace named rules from other grammars with their expansions.
     Replace tags with sequences of __begin__TAG ... __end__TAG."""
     if isinstance(rule, jsgf.rules.Rule):
