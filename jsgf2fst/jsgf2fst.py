@@ -251,11 +251,12 @@ def replace_and_patch(
 def read_slots(slots_dir: str) -> Dict[str, List[str]]:
     """Load slot values (lines) from all files in the given directory."""
     slots = {}
-    for slot_path in os.listdir(slots_dir):
-        slot_name = os.path.splitext(slot_path)[0]
-        slot_path = os.path.join(slots_dir, slot_path)
-        with open(slot_path, "r") as slot_file:
-            slots[slot_name] = [line.strip().lower() for line in slot_file]
+    if os.path.exists(slots_dir):
+        for slot_path in os.listdir(slots_dir):
+            slot_name = os.path.splitext(slot_path)[0]
+            slot_path = os.path.join(slots_dir, slot_path)
+            with open(slot_path, "r") as slot_file:
+                slots[slot_name] = [line.strip().lower() for line in slot_file]
 
     return slots
 
