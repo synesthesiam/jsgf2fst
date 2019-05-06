@@ -5,7 +5,7 @@ import argparse
 import re
 import json
 import logging
-from typing import Dict, Any, List, Optional, TextIO, Mapping
+from typing import Dict, Any, List, Optional, TextIO, Mapping, Union
 
 import pywrapfst as fst
 
@@ -44,15 +44,19 @@ def main() -> None:
 
 def fstaccept(
     in_fst: fst.Fst,
-    sentence: str,
+    sentence: Union[str, List[str]],
     intent_name: Optional[str] = None,
     replace_tags: bool = True,
 ) -> List[Dict[str, Any]]:
     """Recognizes an intent from a sentence using a FST."""
 
-    # Assume lower case, white-space separated tokens
-    sentence = sentence.strip().lower()
-    words = re.split(r"\s+", sentence)
+    if isinstance(sentence, str):
+        # Assume lower case, white-space separated tokens
+        sentence = sentence.strip().lower()
+        words = re.split(r"\s+", sentence)
+    else:
+        words = sentence
+
     intents = []
 
     try:
@@ -204,6 +208,7 @@ def linear_fst(
     **kwargs: Mapping[Any, Any],
 ) -> fst.Fst:
     """Produce a linear automata."""
+    assert len(elements) > 0, "No elements"
     compiler = fst.Compiler(
         isymbols=automata_op.input_symbols().copy(),
         acceptor=keep_isymbols,
@@ -211,9 +216,12 @@ def linear_fst(
         **kwargs,
     )
 
+    num_elements = 0
     for i, el in enumerate(elements):
         print("{} {} {}".format(i, i + 1, el), file=compiler)
-    print(str(i + 1), file=compiler)
+        num_elements += 1
+
+    print(str(num_elements), file=compiler)
 
     return compiler.compile()
 

@@ -22,7 +22,9 @@ def main() -> None:
 # -----------------------------------------------------------------------------
 
 
-def fst2arpa(fst_path: str, arpa_path: Optional[str] = None) -> Any:
+def fst2arpa(
+    fst_path: str, arpa_path: Optional[str] = None, ngram_fst_path: Optional[str] = None
+) -> Any:
     """Converts a FST to ARPA model using opengrm."""
 
     for tool in ["ngramcount", "ngrammake", "ngramprint"]:
@@ -51,6 +53,10 @@ def fst2arpa(fst_path: str, arpa_path: Optional[str] = None) -> Any:
             except subprocess.CalledProcessError as e:
                 logging.error(e.output.decode())
                 raise e
+
+            if ngram_fst_path is not None:
+                # Save model FST
+                shutil.copy(model_file.name, ngram_fst_path)
 
             # n-gram model -> ARPA
             cmd = ["ngramprint", "--ARPA", model_file.name]
