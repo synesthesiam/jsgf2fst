@@ -14,9 +14,10 @@ def main() -> None:
 
     parser = argparse.ArgumentParser("fst2arpa")
     parser.add_argument("fst", help="Path to FST")
+    parser.add_argument("--ngram-fst", default=None, help="Path to save ngram FST")
     args = parser.parse_args()
 
-    print(fst2arpa(args.fst))
+    print(fst2arpa(args.fst, ngram_fst_path=args.ngram_fst))
 
 
 # -----------------------------------------------------------------------------
@@ -63,7 +64,7 @@ def fst2arpa(
             logging.debug(cmd)
 
             if arpa_path is None:
-                return subprocess.check_output(cmd)
+                return subprocess.check_output(cmd).decode()
             else:
                 cmd.append(arpa_path)
                 subprocess.check_call(cmd)
