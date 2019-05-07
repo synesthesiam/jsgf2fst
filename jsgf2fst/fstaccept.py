@@ -81,6 +81,13 @@ def fstaccept(
 # -----------------------------------------------------------------------------
 
 
+class TagInfo:
+    def __init__(self, tag, start_index, symbols=None):
+        self.tag = tag
+        self.start_index = start_index
+        self.symbols = symbols or []
+
+
 def symbols2intent(
     symbols: List[str],
     eps: str = "<eps>",
@@ -89,10 +96,8 @@ def symbols2intent(
     replace_tags: bool = True,
 ) -> Dict[str, Any]:
     intent = intent or empty_intent()
-    tag = None
-    tag_symbols: List[str] = []
+    tag_stack: List[TagInfo] = []
     out_symbols: List[str] = []
-    tag_start_index = 0
     out_index = 0
 
     for sym in symbols:
@@ -101,11 +106,17 @@ def symbols2intent(
 
         if sym.startswith("__begin__"):
             # Begin tag
-            tag = sym[9:]
-            tag_symbols = []
-            tag_start_index = out_index
+            tag_stack.append(TagInfo(sym[9:], out_index))
         elif sym.startswith("__end__"):
+            assert len(tag_stack) > 0, f"Unbalanced tags. Got {sym}."
+
             # End tag
+            tag_info = tag_stack.pop()
+            tag, tag_symbols, tag_start_index = (
+                tag_info.tag,
+                tag_info.symbols,
+                tag_info.start_index,
+            )
             assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
 
             if replace_tags and (":" in tag):
@@ -126,16 +137,14 @@ def symbols2intent(
                     "end": out_index - 1,
                 }
             )
-
-            tag = None
-            tag_start_index = 0
         elif sym.startswith("__label__"):
             # Intent label
             if intent_name is None:
                 intent_name = sym[9:]
-        elif tag:
+        elif len(tag_stack) > 0:
             # Inside tag
-            tag_symbols.append(sym)
+            for tag_info in tag_stack:
+                tag_info.symbols.append(sym)
         else:
             # Outside tag
             out_symbols.append(sym)

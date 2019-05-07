@@ -21,6 +21,7 @@ def main() -> None:
     parser = argparse.ArgumentParser("jsgf2fst")
     parser.add_argument("grammars", nargs="+", help="JSGF grammars to convert")
     parser.add_argument("--out-dir", default=".", help="Directory to write FST files")
+    parser.add_argument("--intent-fst", default=None, help="Path to write intent FST")
     parser.add_argument(
         "--slots-dir", default=None, help="Directory to read slot files"
     )
@@ -49,7 +50,12 @@ def main() -> None:
     for grammar_name, grammar_fst in grammar_fsts.items():
         fst_path = os.path.abspath(os.path.join(args.out_dir, f"{grammar_name}.fst"))
         grammar_fst.write(fst_path)
-        logging.info(f"Wrote to {fst_path}")
+        logging.info(f"Wrote grammar FST to {fst_path}")
+
+    if args.intent_fst:
+        intent_fst = make_intent_fst(grammar_fsts)
+        intent_fst.write(args.intent_fst)
+        logging.info(f"Wrote intent FST to {args.intent_fst}")
 
 
 # -----------------------------------------------------------------------------
@@ -147,12 +153,11 @@ def jsgf2fst(
 # -----------------------------------------------------------------------------
 
 
-def make_intent_fst(grammar_fsts: Dict[str, fst.Fst]) -> fst.Fst:
+def make_intent_fst(grammar_fsts: Dict[str, fst.Fst], eps=0) -> fst.Fst:
     """Merges grammar FSTs created with jsgf2fst into a single acceptor FST."""
     intent_fst = fst.Fst()
     all_symbols = fst.SymbolTable()
-    all_symbols.add_symbol("<eps>", 0)
-    eps = 0
+    all_symbols.add_symbol("<eps>", eps)
 
     # Merge symbols from all FSTs
     tables = [
@@ -182,9 +187,15 @@ def make_intent_fst(grammar_fsts: Dict[str, fst.Fst]) -> fst.Fst:
     # Merge FSTs in
     for intent_name, grammar_fst in grammar_fsts.items():
         label_sym = all_symbols.find(f"__label__{intent_name}")
-        replace_and_patch(intent_fst, start_state, final_state, grammar_fst, label_sym)
+        replace_and_patch(
+            intent_fst, start_state, final_state, grammar_fst, label_sym, eps=eps
+        )
 
-    return intent_fst.rmepsilon()
+    # BUG: Fst.minimize does not pass allow_nondet through, so we have to call out to the command-line
+    minimize_cmd = ["fstminimize", "--allow_nondet"]
+    return fst.Fst.read_from_string(
+        subprocess.check_output(minimize_cmd, input=intent_fst.WriteToString())
+    )
 
 
 def replace_and_patch(

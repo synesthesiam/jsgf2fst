@@ -185,6 +185,10 @@ class Jsgf2FstTestCase(unittest.TestCase):
             self.assertEqual(ev["entity"], "color")
             self.assertEqual(ev["value"], "purple")
 
+        # Verify number of sentences (takes a long time)
+        logging.debug("Counting all possible test sentences...")
+        sentences = fstprintall(intent_fst, exclude_meta=False)
+        self.assertEqual(len(sentences), 3356156 + 12 + 14)
 
 # -----------------------------------------------------------------------------
 
