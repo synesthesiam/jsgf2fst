@@ -92,15 +92,18 @@ def symbols2intent(
     tag = None
     tag_symbols: List[str] = []
     out_symbols: List[str] = []
+    tag_start_index = 0
+    out_index = 0
 
     for sym in symbols:
-        if sym == "<eps>":
+        if sym == eps:
             continue
 
         if sym.startswith("__begin__"):
             # Begin tag
             tag = sym[9:]
             tag_symbols = []
+            tag_start_index = out_index
         elif sym.startswith("__end__"):
             # End tag
             assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
@@ -108,13 +111,24 @@ def symbols2intent(
             if replace_tags and (":" in tag):
                 # Use replacement string in the tag
                 tag, tag_value = tag.split(":", maxsplit=1)
+                out_symbols.extend(re.split(r"\s+", tag_value))
             else:
                 # Use text between begin/end
                 tag_value = " ".join(tag_symbols)
+                out_symbols.extend(tag_symbols)
 
-            intent["entities"].append({"entity": tag, "value": tag_value})
+            out_index += len(tag_value) + 1  # space
+            intent["entities"].append(
+                {
+                    "entity": tag,
+                    "value": tag_value,
+                    "start": tag_start_index,
+                    "end": out_index - 1,
+                }
+            )
 
             tag = None
+            tag_start_index = 0
         elif sym.startswith("__label__"):
             # Intent label
             if intent_name is None:
@@ -122,10 +136,10 @@ def symbols2intent(
         elif tag:
             # Inside tag
             tag_symbols.append(sym)
-            out_symbols.append(sym)
         else:
             # Outside tag
             out_symbols.append(sym)
+            out_index += len(sym) + 1  # space
 
     intent["text"] = " ".join(out_symbols)
     intent["tokens"] = out_symbols

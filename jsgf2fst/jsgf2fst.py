@@ -280,12 +280,14 @@ def replace_tags_and_rules(
 
         if tag:
             # Replace with __begin__/__end__ sequence
-            rule.tag = None
+            rule_copy = rule.copy()
+            rule_copy.tag = None
+
             tag_seq = jsgf.expansions.Sequence()
             tag_seq.children.extend(
                 [
                     jsgf.expansions.Literal(f"__begin__{tag}"),
-                    replace_tags_and_rules(rule, rule_map, slots=slots),
+                    replace_tags_and_rules(rule_copy, rule_map, slots=slots),
                     jsgf.expansions.Literal(f"__end__{tag}"),
                 ]
             )

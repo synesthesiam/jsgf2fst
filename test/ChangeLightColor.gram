@@ -1,4 +1,5 @@
 #JSGF V1.0 UTF-8 en;
 grammar ChangeLightColor;
 
-public <ChangeLightColor> = set color to ($colors){color};
+public <ChangeLightColor> = ((set color to <color>) | (make it <color>));
+<color> = ($colors){color};

@@ -44,10 +44,13 @@ class Jsgf2FstTestCase(unittest.TestCase):
         self.assertEqual(intent["intent"]["confidence"], 1)
         self.assertEqual(len(intent["entities"]), 3)
 
+        text = intent["text"]
         expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
         for ev in intent["entities"]:
             entity = ev["entity"]
             if (entity in expected) and (ev["value"] == expected[entity]):
+                start, end = ev["start"], ev["end"]
+                self.assertEqual(text[start:end], ev["value"])
                 expected.pop(entity)
 
         self.assertDictEqual(expected, {})
@@ -131,8 +134,13 @@ class Jsgf2FstTestCase(unittest.TestCase):
         slots = read_slots("test/slots")
         fst = jsgf2fst(grammar, slots=slots)
         self.assertGreater(len(list(fst.states())), 0)
-        sentences = fstprintall(fst)
-        self.assertEqual(len(sentences), 6)
+        sentences = fstprintall(fst, exclude_meta=False)
+        self.assertEqual(len(sentences), 12)
+
+        # Verify all sentences have intent/entity meta tokens
+        for sentence in sentences:
+            self.assertIn("__begin__color", sentence)
+            self.assertIn("__end__color", sentence)
 
     # -------------------------------------------------------------------------
 
@@ -163,9 +171,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
         self.assertDictEqual(expected, {})
 
         # Verify multiple interpretations
-        intents = fstaccept(
-            intent_fst, "set color to purple"
-        )
+        intents = fstaccept(intent_fst, "set color to purple")
 
         logging.debug(intents)
         self.assertEqual(len(intents), 2)
