@@ -12,6 +12,7 @@ from typing import List, Dict, Union, Any
 
 import jsgf
 from jsgf.rules import Rule
+from jsgf.expansions import Literal, Sequence, AlternativeSet, OptionalGrouping
 import pywrapfst as fst
 
 
@@ -97,8 +98,6 @@ def jsgf2fst(
         replace_tags_and_rules(top_rule, rule_map, slots=slots)
         new_grammar_string = grammar.compile()
 
-        logging.debug(f"Converting to FST")
-
         # Convert JSGF to Sphinx FSM.
         # ASsumes sphinx_jsgf2fsg is in PATH.
         with tempfile.NamedTemporaryFile(mode="w+") as fsm_file:
@@ -143,11 +142,103 @@ def jsgf2fst(
             grammar_fst = compiler.compile()
             grammar_fsts[grammar.name] = grammar_fst
 
+        # sym_table = fst.SymbolTable()
+        # sym_table.add_symbol("<eps>", 0)
+        # grammar_fst = fst.Fst()
+
+        # start_state = grammar_fst.add_state()
+        # grammar_fst.set_start(start_state)
+
+        # final_state = grammar_fst.add_state()
+        # grammar_fst.set_final(final_state)
+
+        # _rule_to_fst(grammar_fst, sym_table, top_rule, start_state, final_state)
+
+        # grammar_fst.set_input_symbols(sym_table)
+        # grammar_fst.set_output_symbols(sym_table)
+        # grammar_fsts[grammar.name] = grammar_fst
+
     if not is_list:
         # Single input, single output
         return next(iter(grammar_fsts.values()))
 
     return grammar_fsts
+
+
+def _rule_to_fst(
+    grammar_fst: fst.Fst,
+    sym_table: fst.SymbolTable,
+    rule: Rule,
+    from_state: int,
+    to_state: int,
+    eps=0,
+):
+    one_weight = fst.Weight.One(grammar_fst.weight_type())
+
+    if isinstance(rule, Literal):
+        text = rule.text.strip().lower()
+        if " " in text:
+            # Split text into tokens (words)
+            word_seq = Sequence()
+            for word in re.split(r"\s+", text):
+                word_seq.children.append(Literal(word))
+
+            # Handle sequence
+            _rule_to_fst(
+                grammar_fst, sym_table, word_seq, from_state, to_state, eps=eps
+            )
+        else:
+            word = text
+            if ":" in word:
+                # input:output
+                in_word, out_word = word.split(":", maxsplit=1)
+                in_sym, out_sym = (
+                    sym_table.add_symbol(in_word),
+                    sym_table.add_symbol(out_word),
+                )
+            elif word.startswith("__"):
+                # meta token
+                in_sym = eps
+                out_sym = sym_table.add_symbol(word)
+            else:
+                # regular word
+                in_sym = sym_table.add_symbol(word)
+                out_sym = in_sym
+
+            # Add arc for word
+            grammar_fst.add_arc(
+                from_state, fst.Arc(in_sym, out_sym, one_weight, to_state)
+            )
+    elif isinstance(rule, OptionalGrouping):
+        # Handle child
+        _rule_to_fst(grammar_fst, sym_table, rule.child, from_state, to_state, eps=eps)
+
+        # Add optional arc
+        grammar_fst.add_arc(from_state, fst.Arc(eps, eps, one_weight, to_state))
+    elif isinstance(rule, AlternativeSet):
+        for child in rule.children:
+            # Handle child
+            _rule_to_fst(grammar_fst, sym_table, child, from_state, to_state, eps=eps)
+    elif isinstance(rule, Sequence):
+        current_state = from_state
+        last_state = to_state
+
+        # Connect children in linear chain
+        for child in rule.children:
+            child_state = grammar_fst.add_state()
+            _rule_to_fst(
+                grammar_fst, sym_table, child, current_state, child_state, eps=eps
+            )
+            current_state = child_state
+
+        # Connect to final state
+        grammar_fst.add_arc(current_state, fst.Arc(eps, eps, one_weight, last_state))
+    elif isinstance(rule, Rule):
+        _rule_to_fst(
+            grammar_fst, sym_table, rule.expansion, from_state, to_state, eps=eps
+        )
+    else:
+        assert False, f"Unsupported rule: {rule}"
 
 
 # -----------------------------------------------------------------------------

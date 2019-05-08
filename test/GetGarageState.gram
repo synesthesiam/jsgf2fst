@@ -1,0 +1,4 @@
+#JSGF V1.0 UTF-8 en;
+grammar GetGarageState;
+
+public <GetGarageState> = is the garage door (open | closed);

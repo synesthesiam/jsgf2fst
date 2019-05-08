@@ -144,6 +144,21 @@ class Jsgf2FstTestCase(unittest.TestCase):
 
     # -------------------------------------------------------------------------
 
+    def test_end_disjunction(self):
+        grammar = jsgf.parse_grammar_file("test/GetGarageState.gram")
+        fst = jsgf2fst(grammar)
+        self.assertGreater(len(list(fst.states())), 0)
+        sentences = fstprintall(fst, exclude_meta=False)
+        self.assertEqual(len(sentences), 2)
+
+        # Join strings
+        sentences = [" ".join(s) for s in sentences]
+
+        self.assertIn("is the garage door open", sentences)
+        self.assertIn("is the garage door closed", sentences)
+
+    # -------------------------------------------------------------------------
+
     def test_intent_fst(self):
         grammars = [jsgf.parse_grammar_file(p) for p in glob("test/*.gram")]
         slots = read_slots("test/slots")
@@ -188,7 +203,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
         # Verify number of sentences (takes a long time)
         logging.debug("Counting all possible test sentences...")
         sentences = fstprintall(intent_fst, exclude_meta=False)
-        self.assertEqual(len(sentences), 3356156 + 12 + 14)
+        self.assertEqual(len(sentences), 3356156 + 12 + 12)
 
 # -----------------------------------------------------------------------------
 
