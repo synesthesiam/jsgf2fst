@@ -28,12 +28,12 @@ class Jsgf2FstTestCase(unittest.TestCase):
 
     def test_timer(self):
         grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
-        fst = jsgf2fst(grammar)
-        self.assertGreater(len(list(fst.states())), 0)
+        timer_fst = jsgf2fst(grammar)
+        self.assertGreater(len(list(timer_fst.states())), 0)
 
         intents = fstaccept(
-            fst,
-            "set a timer for one hour and ten minutes and forty two seconds",
+            timer_fst,
+            "set a timer for ten minutes and forty two seconds",
             intent_name="SetTimer",
         )
 
@@ -42,10 +42,13 @@ class Jsgf2FstTestCase(unittest.TestCase):
         logging.debug(intent)
         self.assertEqual(intent["intent"]["name"], "SetTimer")
         self.assertEqual(intent["intent"]["confidence"], 1)
-        self.assertEqual(len(intent["entities"]), 3)
+        self.assertEqual(len(intent["entities"]), 2)
 
         text = intent["text"]
-        expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
+        self.assertEqual(text, "set a timer for 10 minutes and 40 2 seconds")
+        self.assertEqual(intent["raw_text"], "set a timer for ten minutes and forty two seconds")
+
+        expected = {"minutes": "10", "seconds": "40 2"}
         for ev in intent["entities"]:
             entity = ev["entity"]
             if (entity in expected) and (ev["value"] == expected[entity]):
@@ -54,6 +57,12 @@ class Jsgf2FstTestCase(unittest.TestCase):
                 expected.pop(entity)
 
         self.assertDictEqual(expected, {})
+
+        # Verify number of sentences (takes a long time)
+        logging.debug("Counting all possible test sentences...")
+        timer_fst.write("timer.fst")
+        sentences = fstprintall(timer_fst, exclude_meta=False)
+        self.assertEqual(len(sentences), 2 * (59 * (1 + (2 * 59))))
 
     # -------------------------------------------------------------------------
 
@@ -167,7 +176,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
 
         # Check timer input
         intents = fstaccept(
-            intent_fst, "set a timer for one hour and ten minutes and forty two seconds"
+            intent_fst, "set a timer for ten minutes and forty two seconds"
         )
 
         intent = intents[0]
@@ -175,9 +184,9 @@ class Jsgf2FstTestCase(unittest.TestCase):
         logging.debug(intent)
         self.assertEqual(intent["intent"]["name"], "SetTimer")
         self.assertEqual(intent["intent"]["confidence"], 1)
-        self.assertEqual(len(intent["entities"]), 3)
+        self.assertEqual(len(intent["entities"]), 2)
 
-        expected = {"hours": "one", "minutes": "ten", "seconds": "forty two"}
+        expected = {"minutes": "10", "seconds": "40 2"}
         for ev in intent["entities"]:
             entity = ev["entity"]
             if (entity in expected) and (ev["value"] == expected[entity]):
@@ -199,11 +208,6 @@ class Jsgf2FstTestCase(unittest.TestCase):
             ev = intent["entities"][0]
             self.assertEqual(ev["entity"], "color")
             self.assertEqual(ev["value"], "purple")
-
-        # Verify number of sentences (takes a long time)
-        logging.debug("Counting all possible test sentences...")
-        sentences = fstprintall(intent_fst, exclude_meta=False)
-        self.assertEqual(len(sentences), 3356156 + 12 + 12)
 
 # -----------------------------------------------------------------------------
 

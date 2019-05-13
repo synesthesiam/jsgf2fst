@@ -130,14 +130,21 @@ def jsgf2fst(
                 else:
                     # FROM_STATE TO_STATE SYMBOL
                     sym = parts[2]
+                    if ":" in sym:
+                        in_sym, out_sym = sym.split(":", maxsplit=1)
+                    else:
+                        in_sym = sym
+                        out_sym = sym
+
+                    sym_table.add_symbol(in_sym)
                     sym_table.add_symbol(sym)
 
-                    if sym.startswith("__"):
+                    if in_sym.startswith("__"):
                         # Tag (__begin__/__end__ surrounding content)
                         print(f"{parts[0]} {parts[1]} <eps> {sym}", file=compiler)
                     else:
                         # Regular transition
-                        print(f"{parts[0]} {parts[1]} {sym} {sym}", file=compiler)
+                        print(f"{parts[0]} {parts[1]} {in_sym} {sym}", file=compiler)
 
             grammar_fst = compiler.compile()
             grammar_fsts[grammar.name] = grammar_fst

@@ -82,10 +82,11 @@ def fstaccept(
 
 
 class TagInfo:
-    def __init__(self, tag, start_index, symbols=None):
+    def __init__(self, tag, start_index, symbols=None, raw_symbols=None):
         self.tag = tag
         self.start_index = start_index
         self.symbols = symbols or []
+        self.raw_symbols = raw_symbols or []
 
 
 def symbols2intent(
@@ -98,6 +99,7 @@ def symbols2intent(
     intent = intent or empty_intent()
     tag_stack: List[TagInfo] = []
     out_symbols: List[str] = []
+    raw_symbols: List[str] = []
     out_index = 0
 
     for sym in symbols:
@@ -112,12 +114,16 @@ def symbols2intent(
 
             # End tag
             tag_info = tag_stack.pop()
-            tag, tag_symbols, tag_start_index = (
+            tag, tag_symbols, tag_raw_symbols, tag_start_index = (
                 tag_info.tag,
                 tag_info.symbols,
+                tag_info.raw_symbols,
                 tag_info.start_index,
             )
             assert tag == sym[7:], f"Mismatched tags: {tag} {sym[7:]}"
+
+            raw_value = " ".join(tag_raw_symbols)
+            raw_symbols.extend(tag_raw_symbols)
 
             if replace_tags and (":" in tag):
                 # Use replacement string in the tag
@@ -133,6 +139,7 @@ def symbols2intent(
                 {
                     "entity": tag,
                     "value": tag_value,
+                    "raw_value": raw_value,
                     "start": tag_start_index,
                     "end": out_index - 1,
                 }
@@ -144,14 +151,33 @@ def symbols2intent(
         elif len(tag_stack) > 0:
             # Inside tag
             for tag_info in tag_stack:
-                tag_info.symbols.append(sym)
+                if ":" in sym:
+                    # Use replacement text
+                    in_sym, out_sym = sym.split(":", maxsplit=1)
+                    tag_info.raw_symbols.append(in_sym)
+                    tag_info.symbols.append(out_sym)
+                else:
+                    # Use original symbol
+                    tag_info.raw_symbols.append(sym)
+                    tag_info.symbols.append(sym)
         else:
             # Outside tag
-            out_symbols.append(sym)
-            out_index += len(sym) + 1  # space
+            if ":" in sym:
+                # Use replacement symbol
+                in_sym, out_sym = sym.split(":", maxsplit=1)
+                raw_symbols.append(in_sym)
+                out_symbols.append(out_sym)
+                out_index += len(out_sym) + 1  # space
+            else:
+                # Use original symbol
+                raw_symbols.append(sym)
+                out_symbols.append(sym)
+                out_index += len(sym) + 1  # space
 
     intent["text"] = " ".join(out_symbols)
+    intent["raw_text"] = " ".join(raw_symbols)
     intent["tokens"] = out_symbols
+    intent["raw_tokens"] = raw_symbols
 
     if len(out_symbols) > 0:
         intent["intent"]["name"] = intent_name or ""
