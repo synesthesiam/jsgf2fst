@@ -18,3 +18,7 @@ The typical usage for `jsgf2fst` is:
 4. Convert to FSTS with `jsgf2fst.jsgf2fst(...)`
 5. Merge into a single acceptor FST with `jsgf2fst.make_intent_fst(...)`
 6. Recognize intents from text with `jsgf2fst.fstaccept(...)`
+
+## Acknowledgements
+
+This library depends on a modified version of [pyjsgf](https://Danesprite/pyjsgf).

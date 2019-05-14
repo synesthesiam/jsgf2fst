@@ -44,19 +44,31 @@ class Jsgf2FstTestCase(unittest.TestCase):
         self.assertEqual(intent["intent"]["confidence"], 1)
         self.assertEqual(len(intent["entities"]), 2)
 
+        # Verify text with replacements
         text = intent["text"]
         self.assertEqual(text, "set a timer for 10 minutes and 40 2 seconds")
-        self.assertEqual(intent["raw_text"], "set a timer for ten minutes and forty two seconds")
 
+        # Verify "raw" text (no replacements)
+        raw_text = intent["raw_text"]
+        self.assertEqual(raw_text, "set a timer for ten minutes and forty two seconds")
+
+        # Verify individual entities
         expected = {"minutes": "10", "seconds": "40 2"}
+        raw_expected = {"minutes": "ten", "seconds": "forty two"}
+
         for ev in intent["entities"]:
             entity = ev["entity"]
             if (entity in expected) and (ev["value"] == expected[entity]):
+                # Check start/end inside text
                 start, end = ev["start"], ev["end"]
                 self.assertEqual(text[start:end], ev["value"])
                 expected.pop(entity)
 
+            if (entity in raw_expected) and (ev["raw_value"] == raw_expected[entity]):
+                raw_expected.pop(entity)
+
         self.assertDictEqual(expected, {})
+        self.assertDictEqual(raw_expected, {})
 
         # Verify number of sentences (takes a long time)
         logging.debug("Counting all possible test sentences...")

@@ -1,2 +1,3 @@
 openfst==1.6.1
-pyjsgf==1.6.0
+pyparsing>=2.2.0
+six
