@@ -109,11 +109,14 @@ def jsgf2fst(
             )
 
             # Convert to fst
-            sym_table = fst.SymbolTable()
-            sym_table.add_symbol("<eps>", 0)
+            in_symbols = fst.SymbolTable()
+            out_symbols = fst.SymbolTable()
+            in_symbols.add_symbol("<eps>", 0)
+            out_symbols.add_symbol("<eps>", 0)
+
             compiler = fst.Compiler(
-                isymbols=sym_table,
-                osymbols=sym_table,
+                isymbols=in_symbols,
+                osymbols=out_symbols,
                 keep_isymbols=True,
                 keep_osymbols=True,
             )
@@ -131,20 +134,24 @@ def jsgf2fst(
                     # FROM_STATE TO_STATE SYMBOL
                     sym = parts[2]
                     if ":" in sym:
-                        in_sym, out_sym = sym.split(":", maxsplit=1)
+                        # Using combined symbol as output so we can retrieve "raw" text later
+                        in_sym = sym.split(":", maxsplit=1)[0]
+                        out_sym = sym
                     else:
                         in_sym = sym
                         out_sym = sym
 
-                    sym_table.add_symbol(in_sym)
-                    sym_table.add_symbol(sym)
+                    in_symbols.add_symbol(in_sym)
+                    out_symbols.add_symbol(out_sym)
 
                     if in_sym.startswith("__"):
                         # Tag (__begin__/__end__ surrounding content)
-                        print(f"{parts[0]} {parts[1]} <eps> {sym}", file=compiler)
+                        print(f"{parts[0]} {parts[1]} <eps> {out_sym}", file=compiler)
                     else:
                         # Regular transition
-                        print(f"{parts[0]} {parts[1]} {in_sym} {sym}", file=compiler)
+                        print(
+                            f"{parts[0]} {parts[1]} {in_sym} {out_sym}", file=compiler
+                        )
 
             grammar_fst = compiler.compile()
             grammar_fsts[grammar.name] = grammar_fst
@@ -254,26 +261,27 @@ def _rule_to_fst(
 def make_intent_fst(grammar_fsts: Dict[str, fst.Fst], eps=0) -> fst.Fst:
     """Merges grammar FSTs created with jsgf2fst into a single acceptor FST."""
     intent_fst = fst.Fst()
-    all_symbols = fst.SymbolTable()
-    all_symbols.add_symbol("<eps>", eps)
+    all_in_symbols = fst.SymbolTable()
+    all_out_symbols = fst.SymbolTable()
+    all_in_symbols.add_symbol("<eps>", eps)
+    all_out_symbols.add_symbol("<eps>", eps)
 
     # Merge symbols from all FSTs
-    tables = [
-        t
-        for gf in grammar_fsts.values()
-        for t in [gf.input_symbols(), gf.output_symbols()]
-    ]
+    for grammar_fst in grammar_fsts.values():
+        in_symbols = grammar_fst.input_symbols()
+        for i in range(in_symbols.num_symbols()):
+            all_in_symbols.add_symbol(in_symbols.find(i).decode())
 
-    for table in tables:
-        for i in range(table.num_symbols()):
-            all_symbols.add_symbol(table.find(i).decode())
+        out_symbols = grammar_fst.output_symbols()
+        for i in range(out_symbols.num_symbols()):
+            all_out_symbols.add_symbol(out_symbols.find(i).decode())
 
     # Add __label__ for each intent
     for intent_name in grammar_fsts.keys():
-        all_symbols.add_symbol(f"__label__{intent_name}")
+        all_out_symbols.add_symbol(f"__label__{intent_name}")
 
-    intent_fst.set_input_symbols(all_symbols)
-    intent_fst.set_output_symbols(all_symbols)
+    intent_fst.set_input_symbols(all_in_symbols)
+    intent_fst.set_output_symbols(all_out_symbols)
 
     # Create start/final states
     start_state = intent_fst.add_state()
@@ -284,7 +292,7 @@ def make_intent_fst(grammar_fsts: Dict[str, fst.Fst], eps=0) -> fst.Fst:
 
     # Merge FSTs in
     for intent_name, grammar_fst in grammar_fsts.items():
-        label_sym = all_symbols.find(f"__label__{intent_name}")
+        label_sym = all_out_symbols.find(f"__label__{intent_name}")
         replace_and_patch(
             intent_fst, start_state, final_state, grammar_fst, label_sym, eps=eps
         )
@@ -406,6 +414,7 @@ def replace_tags_and_rules(
             # <OtherGrammar.otherRule>
             ref_rule = rule_map.get(rule.name, None)
             if ref_rule is None:
+                assert rule.rule is not None, f"Missing rule {rule.name}"
                 grammar_name = rule.rule.grammar.name
                 ref_rule = rule_map[f"{grammar_name}.{rule.name}"]
 
