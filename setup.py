@@ -13,7 +13,7 @@ setuptools.setup(
     url="https://github.com/synesthesiam/jsgf2fst",
     packages=setuptools.find_packages(),
     package_data={"jsgf2fst": ["py.typed"]},
-    install_requires=["openfst==1.6.1", "pyparsing>=2.2.0", "six"],
+    install_requires=["openfst>=1.6.1", "pyparsing>=2.2.0", "six"],
     classifiers=["Programming Language :: Python :: 3"],
     long_description=long_description,
     long_description_content_type="text/markdown",
