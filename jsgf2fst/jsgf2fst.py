@@ -13,7 +13,7 @@ from typing import List, Dict, Union, Any
 import jsgf
 from jsgf.rules import Rule
 from jsgf.expansions import Literal, Sequence, AlternativeSet, OptionalGrouping
-import pywrapfst as fst
+import openfst_python as fst
 
 
 def main() -> None:
@@ -300,7 +300,7 @@ def make_intent_fst(grammar_fsts: Dict[str, fst.Fst], eps=0) -> fst.Fst:
     # BUG: Fst.minimize does not pass allow_nondet through, so we have to call out to the command-line
     minimize_cmd = ["fstminimize", "--allow_nondet"]
     return fst.Fst.read_from_string(
-        subprocess.check_output(minimize_cmd, input=intent_fst.WriteToString())
+        subprocess.check_output(minimize_cmd, input=intent_fst.write_to_string())
     )
 
 
