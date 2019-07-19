@@ -7,7 +7,7 @@ with open(os.path.join(this_dir, "README.md"), "r") as readme_file:
 
 setuptools.setup(
     name="jsgf2fst",
-    version="0.1.1",
+    version="0.1.2",
     author="Michael Hansen",
     author_email="hansen.mike@gmail.com",
     url="https://github.com/synesthesiam/jsgf2fst",

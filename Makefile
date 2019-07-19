@@ -12,4 +12,4 @@ clean:
 dist:
 	rm -rf dist/
 	mkdir -p dist
-	tar -czvf dist/jsgf2fst-0.1.1.tar.gz --exclude=__pycache__ README.md setup.py requirements.txt jsgf2fst/ jsgf/
+	tar -czvf dist/jsgf2fst-0.1.2.tar.gz --exclude=__pycache__ README.md setup.py requirements.txt jsgf2fst/ jsgf/
