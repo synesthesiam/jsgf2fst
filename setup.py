@@ -7,13 +7,13 @@ with open(os.path.join(this_dir, "README.md"), "r") as readme_file:
 
 setuptools.setup(
     name="jsgf2fst",
-    version="0.1.0",
+    version="0.1.1",
     author="Michael Hansen",
     author_email="hansen.mike@gmail.com",
     url="https://github.com/synesthesiam/jsgf2fst",
     packages=setuptools.find_packages(),
     package_data={"jsgf2fst": ["py.typed"]},
-    install_requires=["openfs==1.6.1", "pyparsing>=2.2.0", "six"],
+    install_requires=["openfst==1.6.9", "pyparsing>=2.2.0", "six"],
     classifiers=["Programming Language :: Python :: 3"],
     long_description=long_description,
     long_description_content_type="text/markdown",

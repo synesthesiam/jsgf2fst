@@ -6,3 +6,4 @@ dist/
 workbench.xmi
 *.ipynb
 fstprint-all
+build/

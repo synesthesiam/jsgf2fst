@@ -300,7 +300,7 @@ def make_intent_fst(grammar_fsts: Dict[str, fst.Fst], eps=0) -> fst.Fst:
     # BUG: Fst.minimize does not pass allow_nondet through, so we have to call out to the command-line
     minimize_cmd = ["fstminimize", "--allow_nondet"]
     return fst.Fst.read_from_string(
-        subprocess.check_output(minimize_cmd, input=intent_fst.WriteToString())
+        subprocess.check_output(minimize_cmd, input=intent_fst.write_to_string())
     )
 
 
@@ -421,20 +421,29 @@ def replace_tags_and_rules(
             # Expand rule
             return replace_tags_and_rules(ref_rule.expansion, rule_map, slots=slots)
         elif isinstance(rule, jsgf.expansions.Literal):
-            if rule.text.startswith("$"):
-                # $slot -> (all | slot | values)
-                slot_name = rule.text[1:]
-                if slot_name in slots:
-                    logging.debug(f"Replacing slot {slot_name}")
+            lit_seq = jsgf.expansions.Sequence()
 
-                    # Replace with alternative set of values
-                    slot_alt = jsgf.expansions.AlternativeSet()
-                    for slot_value in slots[slot_name]:
-                        slot_alt.children.append(jsgf.expansions.Literal(slot_value))
+            for word in re.split(r"\s+", rule.text):
+                if word.startswith("$"):
+                    # $slot -> (all | slot | values)
+                    slot_name = word[1:]
+                    if slot_name in slots:
+                        logging.debug(f"Replacing slot {slot_name}")
 
-                    return slot_alt
+                        # Replace with alternative set of values
+                        slot_alt = jsgf.expansions.AlternativeSet()
+                        for slot_value in slots[slot_name]:
+                            slot_alt.children.append(jsgf.expansions.Literal(slot_value))
 
-            return rule
+                        lit_seq.children.append(slot_alt)
+                    else:
+                        logging.warn(f"No slot for {slot_name}")
+                        lit_seq.children.append(jsgf.expansions.Literal(word))
+                else:
+                    lit_seq.children.append(jsgf.expansions.Literal(word))
+
+            print(lit_seq)
+            return lit_seq
         elif hasattr(rule, "children"):
             # Replace children
             rule.children = [

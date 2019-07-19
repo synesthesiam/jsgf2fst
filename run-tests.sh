@@ -12,5 +12,6 @@ fi
 
 cd "${this_dir}"
 source .venv/bin/activate
+export LD_LIBRARY_PATH="${venv}/lib"
 
 python3 test.py "$@"
