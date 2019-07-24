@@ -433,7 +433,7 @@ def replace_tags_and_rules(
                         # Replace with alternative set of values
                         slot_alt = jsgf.expansions.AlternativeSet()
                         for slot_value in slots[slot_name]:
-                            slot_alt.children.append(jsgf.expansions.Literal(slot_value))
+                            slot_alt.children.append(jsgf.parse_expansion_string(slot_value))
 
                         lit_seq.children.append(slot_alt)
                     else:
@@ -442,7 +442,6 @@ def replace_tags_and_rules(
                 else:
                     lit_seq.children.append(jsgf.expansions.Literal(word))
 
-            print(lit_seq)
             return lit_seq
         elif hasattr(rule, "children"):
             # Replace children
