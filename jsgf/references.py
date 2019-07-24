@@ -10,7 +10,7 @@ from pyparsing import Literal as PPLiteral  # to differentiate from jsgf.Literal
 from .errors import GrammarError
 
 # Define words as Unicode alphanumerics and/or one of "-\'"
-word = Regex(r"[\w\-\'\$:]+", re.UNICODE).setName("word")
+word = Regex(r"[\w\-\'\$:.]+", re.UNICODE).setName("word")
 words = OneOrMore(word).setName("literal")
 
 # Define a parser for reserved names.

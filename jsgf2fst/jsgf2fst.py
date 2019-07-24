@@ -442,7 +442,6 @@ def replace_tags_and_rules(
                 else:
                     lit_seq.children.append(jsgf.expansions.Literal(word))
 
-            print(lit_seq)
             return lit_seq
         elif hasattr(rule, "children"):
             # Replace children
