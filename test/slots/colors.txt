@@ -2,4 +2,3 @@ blue
 red
 green
 orange
-yellow | purple

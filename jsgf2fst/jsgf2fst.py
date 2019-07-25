@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import shutil
 import collections
+from collections import defaultdict
 import logging
 from typing import List, Dict, Union, Any
 
@@ -365,15 +366,56 @@ def replace_and_patch(
 # -----------------------------------------------------------------------------
 
 
-def read_slots(slots_dir: str) -> Dict[str, List[str]]:
+class SlotValues:
+    def __init__(self) -> None:
+        self.text: Dict[str, List[str]] = {}
+        self.jsgf: Dict[str, List[str]] = {}
+
+    def add_text(self, key: str, value: str) -> None:
+        if key in self.text:
+            self.text[key].append(value)
+        else:
+            self.text[key] = [value]
+
+    def add_jsgf(self, key: str, value: str) -> None:
+        if key in self.jsgf:
+            self.jsgf[key].append(value)
+        else:
+            self.jsgf[key] = [value]
+
+    def get(self, key: str) -> List[Rule]:
+        for text_value in self.text.get(key, []):
+            yield Literal(text_value)
+
+        for jsgf_value in self.jsgf.get(key, []):
+            yield jsgf.parse_expansion_string(jsgf_value)
+
+    def __getitem__(self, key: str) -> List[Rule]:
+        return self.get(key)
+
+    def __contains__(self, key: str) -> bool:
+        return (key in self.text) or (key in self.jsgf)
+
+
+def read_slots(slots_dir: str) -> SlotValues:
     """Load slot values (lines) from all files in the given directory."""
-    slots = {}
+    slots = SlotValues()
     if os.path.exists(slots_dir):
         for slot_path in os.listdir(slots_dir):
-            slot_name = os.path.splitext(slot_path)[0]
+            slot_name, slot_ext = os.path.splitext(slot_path)
+            is_jsgf = slot_ext.lower() == ".jsgf"
             slot_path = os.path.join(slots_dir, slot_path)
+
             with open(slot_path, "r") as slot_file:
-                slots[slot_name] = [line.strip().lower() for line in slot_file]
+                for line in slot_file:
+                    line = line.strip()
+                    if len(line) == 0:
+                        continue
+
+                    if is_jsgf:
+                        slots.add_jsgf(slot_name, line)
+                    else:
+                        slots.add_text(slot_name, line)
 
     return slots
 
@@ -433,7 +475,7 @@ def replace_tags_and_rules(
                         # Replace with alternative set of values
                         slot_alt = jsgf.expansions.AlternativeSet()
                         for slot_value in slots[slot_name]:
-                            slot_alt.children.append(jsgf.parse_expansion_string(slot_value))
+                            slot_alt.children.append(slot_value)
 
                         lit_seq.children.append(slot_alt)
                     else:
