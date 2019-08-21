@@ -16,6 +16,8 @@ from jsgf.rules import Rule
 from jsgf.expansions import Literal, Sequence, AlternativeSet, OptionalGrouping
 import pywrapfst as fst
 
+logger = logging.getLogger("jsgf2fst")
+
 
 def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
@@ -36,7 +38,7 @@ def main() -> None:
     # Load JSGF grammars
     grammars = []
     for grammar_path in args.grammars:
-        logging.debug(f"Parsing {grammar_path}")
+        logger.debug(f"Parsing {grammar_path}")
         grammars.append(jsgf.parse_grammar_file(grammar_path))
 
     if not args.no_slots and args.slots_dir:
@@ -52,12 +54,12 @@ def main() -> None:
     for grammar_name, grammar_fst in grammar_fsts.items():
         fst_path = os.path.abspath(os.path.join(args.out_dir, f"{grammar_name}.fst"))
         grammar_fst.write(fst_path)
-        logging.info(f"Wrote grammar FST to {fst_path}")
+        logger.info(f"Wrote grammar FST to {fst_path}")
 
     if args.intent_fst:
         intent_fst = make_intent_fst(grammar_fsts)
         intent_fst.write(args.intent_fst)
-        logging.info(f"Wrote intent FST to {args.intent_fst}")
+        logger.info(f"Wrote intent FST to {args.intent_fst}")
 
 
 # -----------------------------------------------------------------------------
@@ -77,7 +79,7 @@ def jsgf2fst(
     grammar_fsts = {}
 
     if not shutil.which("sphinx_jsgf2fsg"):
-        logging.fatal("Missing sphinx_jsgf2fst (expected in PATH)")
+        logger.fatal("Missing sphinx_jsgf2fst (expected in PATH)")
         sys.exit(1)
 
     # Gather map of all grammar rules
@@ -89,7 +91,7 @@ def jsgf2fst(
 
     # Process each grammar
     for grammar in grammars:
-        logging.debug(f"Processing {grammar.name}")
+        logger.debug(f"Processing {grammar.name}")
         top_rule = grammar.get_rule_from_name(grammar.name)
         rule_map = {rule.name: rule for rule in grammar.rules}
         for name, rule in global_rule_map.items():
@@ -470,7 +472,7 @@ def replace_tags_and_rules(
                     # $slot -> (all | slot | values)
                     slot_name = word[1:]
                     if slot_name in slots:
-                        logging.debug(f"Replacing slot {slot_name}")
+                        logger.debug(f"Replacing slot {slot_name}")
 
                         # Replace with alternative set of values
                         slot_alt = jsgf.expansions.AlternativeSet()
@@ -479,7 +481,7 @@ def replace_tags_and_rules(
 
                         lit_seq.children.append(slot_alt)
                     else:
-                        logging.warn(f"No slot for {slot_name}")
+                        logger.warn(f"No slot for {slot_name}")
                         lit_seq.children.append(jsgf.expansions.Literal(word))
                 else:
                     lit_seq.children.append(jsgf.expansions.Literal(word))

@@ -8,6 +8,8 @@ import logging
 import argparse
 from typing import Optional, Any
 
+logger = logger.getLogger("fst2arpa")
+
 
 def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
@@ -35,12 +37,12 @@ def fst2arpa(
     with tempfile.NamedTemporaryFile(mode="wb+") as count_file:
         # FST -> n-gram counts
         cmd = ["ngramcount", fst_path, count_file.name]
-        logging.debug(cmd)
+        logger.debug(cmd)
 
         try:
             subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as e:
-            logging.error(e.output.decode())
+            logger.exception(e.output.decode())
             raise e
 
         with tempfile.NamedTemporaryFile(mode="wb+") as model_file:
@@ -48,11 +50,11 @@ def fst2arpa(
 
             # n-gram counts -> n-gram model
             cmd = ["ngrammake", count_file.name, model_file.name]
-            logging.debug(cmd)
+            logger.debug(cmd)
             try:
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
-                logging.error(e.output.decode())
+                logger.exception(e.output.decode())
                 raise e
 
             if ngram_fst_path is not None:
@@ -61,7 +63,7 @@ def fst2arpa(
 
             # n-gram model -> ARPA
             cmd = ["ngramprint", "--ARPA", model_file.name]
-            logging.debug(cmd)
+            logger.debug(cmd)
 
             if arpa_path is None:
                 return subprocess.check_output(cmd).decode()

@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional, TextIO, Mapping, Union
 
 import pywrapfst as fst
 
+logger = logging.getLogger("fstaccept")
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -73,7 +74,7 @@ def fstaccept(
             intents.append(intent)
     except:
         # Error, assign blank result
-        logging.exception(sentence)
+        logger.exception(sentence)
 
     return intents
 
