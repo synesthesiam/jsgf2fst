@@ -3,17 +3,27 @@ import os
 import sys
 import argparse
 import re
+import io
 import subprocess
 import tempfile
 import shutil
+import itertools
 import collections
+from collections import defaultdict, deque
 import logging
-from typing import List, Dict, Union, Any
+from pathlib import Path
+from typing import Set, List, Dict, Union, Any
 
-import jsgf
-from jsgf.rules import Rule
-from jsgf.expansions import Literal, Sequence, AlternativeSet, OptionalGrouping
+import antlr4
 import pywrapfst as fst
+
+from .JsgfParser import JsgfParser
+from .JsgfLexer import JsgfLexer
+from .JsgfParserListener import JsgfParserListener
+
+import antlr4
+
+logger = logging.getLogger("jsgf2fst")
 
 
 def main() -> None:
@@ -35,7 +45,7 @@ def main() -> None:
     # Load JSGF grammars
     grammars = []
     for grammar_path in args.grammars:
-        logging.debug(f"Parsing {grammar_path}")
+        logger.debug(f"Parsing {grammar_path}")
         grammars.append(jsgf.parse_grammar_file(grammar_path))
 
     if not args.no_slots and args.slots_dir:
@@ -51,208 +61,260 @@ def main() -> None:
     for grammar_name, grammar_fst in grammar_fsts.items():
         fst_path = os.path.abspath(os.path.join(args.out_dir, f"{grammar_name}.fst"))
         grammar_fst.write(fst_path)
-        logging.info(f"Wrote grammar FST to {fst_path}")
+        logger.info(f"Wrote grammar FST to {fst_path}")
 
     if args.intent_fst:
         intent_fst = make_intent_fst(grammar_fsts)
         intent_fst.write(args.intent_fst)
-        logging.info(f"Wrote intent FST to {args.intent_fst}")
+        logger.info(f"Wrote intent FST to {args.intent_fst}")
 
 
 # -----------------------------------------------------------------------------
 
 
 def jsgf2fst(
-    grammars: Union[jsgf.Grammar, List[jsgf.Grammar]], slots: Dict[str, List[str]] = {}
+    grammar_paths: Union[Path, List[Path]],
+    slots: Dict[str, List[str]] = {},
+    eps: str = "<eps>",
 ) -> Dict[str, fst.Fst]:
     """Converts JSGF grammars to FSTs.
     Returns dictionary mapping grammar names to FSTs."""
 
-    is_list = isinstance(grammars, collections.Iterable)
+    is_list = isinstance(grammar_paths, collections.Iterable)
     if not is_list:
-        grammars = [grammars]
+        grammar_paths = [grammar_paths]
 
     # grammar name -> fst
-    grammar_fsts = {}
+    grammar_fsts: Dict[str, fst.Fst] = {}
 
-    if not shutil.which("sphinx_jsgf2fsg"):
-        logging.fatal("Missing sphinx_jsgf2fst (expected in PATH)")
-        sys.exit(1)
+    # rule name -> fst
+    rule_fsts: Dict[str, fst.Fst] = {}
 
-    # Gather map of all grammar rules
-    global_rule_map = {
-        f"{grammar.name}.{rule.name}": rule
-        for grammar in grammars
-        for rule in grammar.rules
-    }
+    # rule name -> fst
+    replaced_fsts: Dict[str, fst.Fst] = {}
+
+    # grammar name -> listener
+    listeners: Dict[str, FSTListener] = {}
+
+    # Share symbol tables between all FSTs
+    input_symbols = fst.SymbolTable()
+    output_symbols = fst.SymbolTable()
+    input_symbols.add_symbol(eps)
+    output_symbols.add_symbol(eps)
+
+    # Set of all input symbols that are __begin__ or __end__
+    tag_input_symbols : Set[int] = set()
+
+    # Set of all slot names that were used
+    slots_to_replace : Set[str] = set()
 
     # Process each grammar
-    for grammar in grammars:
-        logging.debug(f"Processing {grammar.name}")
-        top_rule = grammar.get_rule_from_name(grammar.name)
-        rule_map = {rule.name: rule for rule in grammar.rules}
-        for name, rule in global_rule_map.items():
-            rule_map[name] = rule
+    for grammar_path in grammar_paths:
+        logger.debug(f"Processing {grammar_path}")
 
-        # Expand referenced rules and replace tags with __begin__/__end__
-        replace_tags_and_rules(top_rule, rule_map, slots=slots)
-        new_grammar_string = grammar.compile()
+        with open(grammar_path, "r") as grammar_file:
+            # Tokenize
+            input_stream = antlr4.InputStream(grammar_file.read())
+            lexer = JsgfLexer(input_stream)
+            tokens = antlr4.CommonTokenStream(lexer)
 
-        # Convert JSGF to Sphinx FSM.
-        # ASsumes sphinx_jsgf2fsg is in PATH.
-        with tempfile.NamedTemporaryFile(mode="w+") as fsm_file:
-            proc = subprocess.run(
-                ["sphinx_jsgf2fsg", "-jsgf", "/dev/stdin", "-fsm", fsm_file.name],
-                input=new_grammar_string.encode(),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            # Parse
+            parser = JsgfParser(tokens)
 
-            # Convert to fst
-            in_symbols = fst.SymbolTable()
-            out_symbols = fst.SymbolTable()
-            in_symbols.add_symbol("<eps>", 0)
-            out_symbols.add_symbol("<eps>", 0)
+            # Transform to FST
+            context = parser.r()
+            walker = antlr4.ParseTreeWalker()
 
-            compiler = fst.Compiler(
-                isymbols=in_symbols,
-                osymbols=out_symbols,
-                keep_isymbols=True,
-                keep_osymbols=True,
-            )
+            # Create FST and symbol tables
+            grammar_fst = fst.Fst()
 
-            # Rewind temp file
-            fsm_file.seek(0)
-            for line in fsm_file:
-                line = line.strip()
-                parts = re.split(r"\s+", line)
+            start = grammar_fst.add_state()
+            grammar_fst.set_start(start)
 
-                if len(parts) == 2:
-                    # Final state
-                    print(line, file=compiler)
-                else:
-                    # FROM_STATE TO_STATE SYMBOL
-                    sym = parts[2]
-                    if ":" in sym:
-                        # Using combined symbol as output so we can retrieve "raw" text later
-                        in_sym = sym.split(":", maxsplit=1)[0]
-                        out_sym = sym
-                    else:
-                        in_sym = sym
-                        out_sym = sym
+            listener = FSTListener(grammar_fst, input_symbols, output_symbols, start)
+            walker.walk(listener, context)
 
-                    in_symbols.add_symbol(in_sym)
-                    out_symbols.add_symbol(out_sym)
+            # Merge with set of all tag input symbols
+            tag_input_symbols.update(listener.tag_input_symbols)
 
-                    if in_sym.startswith("__"):
-                        # Tag (__begin__/__end__ surrounding content)
-                        print(f"{parts[0]} {parts[1]} <eps> {out_sym}", file=compiler)
-                    else:
-                        # Regular transition
-                        print(
-                            f"{parts[0]} {parts[1]} {in_sym} {out_sym}", file=compiler
-                        )
+            # Merge with set of all used slots
+            slots_to_replace.update(listener.slot_references)
 
-            grammar_fst = compiler.compile()
-            grammar_fsts[grammar.name] = grammar_fst
+            # Save FSTs for all rules
+            for rule_name, rule_fst in listener.fsts.items():
+                rule_fsts[rule_name] = rule_fst
+                listeners[rule_name] = listener
 
-        # sym_table = fst.SymbolTable()
-        # sym_table.add_symbol("<eps>", 0)
-        # grammar_fst = fst.Fst()
+                # Record FSTs that have no rule references
+                if len(listener.rule_references[rule_name]) == 0:
+                    replaced_fsts[rule_name] = rule_fst
 
-        # start_state = grammar_fst.add_state()
-        # grammar_fst.set_start(start_state)
+            # Save for later
+            grammar_fsts[listener.grammar_name] = grammar_fst
 
-        # final_state = grammar_fst.add_state()
-        # grammar_fst.set_final(final_state)
+    # -------------------------------------------------------------------------
 
-        # _rule_to_fst(grammar_fst, sym_table, top_rule, start_state, final_state)
+    # grammar name -> (slot names)
+    def replace_fsts(rule_name):
+        nonlocal replaced_fsts, slots_to_replace
+        rule_fst = replaced_fsts.get(rule_name)
+        if rule_fst is not None:
+            return rule_fst
 
-        # grammar_fst.set_input_symbols(sym_table)
-        # grammar_fst.set_output_symbols(sym_table)
-        # grammar_fsts[grammar.name] = grammar_fst
+        listener = listeners[rule_name]
+
+        rule_fst = rule_fsts[rule_name]
+        for ref_name in listener.rule_references[rule_name]:
+            ref_fst = replace_fsts(ref_name)
+
+            # Replace rule in grammar FST
+            replace_symbol = "__replace__" + ref_name
+            replace_idx = input_symbols.find(replace_symbol)
+            if replace_idx >= 0:
+                logger.debug(f"Replacing rule {ref_name} in {rule_name}")
+                rule_fst = fst.replace(
+                    [(-1, rule_fst), (replace_idx, ref_fst)], epsilon_on_replace=True
+                )
+
+        replaced_fsts[rule_name] = rule_fst
+        return rule_fst
+
+    # Do rule replacements
+    for grammar_name in list(grammar_fsts.keys()):
+        main_rule_name = grammar_name + "." + grammar_name
+        grammar_fsts[grammar_name] = replace_fsts(main_rule_name)
+
+    # -------------------------------------------------------------------------
+
+    # Do slot replacements
+    slot_fsts: Dict[str, fst.Fst] = {}
+    for grammar_name, grammar_fst in grammar_fsts.items():
+        main_rule_name = grammar_name + "." + grammar_name
+        listener = listeners[main_rule_name]
+
+        for slot_name in slots_to_replace:
+            if slot_name not in slot_fsts:
+                # Create FST for slot values
+                logger.debug(f"Creating FST for slot {slot_name}")
+
+                slot_fst = fst.Fst()
+                start = slot_fst.add_state()
+                slot_fst.set_start(start)
+
+                # Create a single slot grammar
+                with io.StringIO() as text_file:
+                    print("#JSGF v1.0;", file=text_file)
+                    print(f"grammar {slot_name};", file=text_file)
+                    print("", file=text_file)
+
+                    choices = " | ".join(
+                        [
+                            "(" + v + ")"
+                            for v in itertools.chain(
+                                slots.get_text(slot_name), slots.get_jsgf(slot_name)
+                            )
+                        ]
+                    )
+
+                    # All slot values
+                    print(f"public <{slot_name}> = ({choices});", file=text_file)
+                    text_file.seek(0)
+
+                    # Tokenize
+                    input_stream = antlr4.InputStream(text_file.getvalue())
+                    lexer = JsgfLexer(input_stream)
+                    tokens = antlr4.CommonTokenStream(lexer)
+
+                    # Parse
+                    parser = JsgfParser(tokens)
+
+                    # Transform to FST
+                    context = parser.r()
+                    walker = antlr4.ParseTreeWalker()
+
+                    # Fill in slot_fst
+                    slot_listener = FSTListener(
+                        slot_fst, input_symbols, output_symbols, start
+                    )
+                    walker.walk(slot_listener, context)
+
+                # Cache for other grammars
+                slot_fsts[slot_name] = slot_fst
+
+            # -----------------------------------------------------------------
+
+            # Replace slot in grammar FST
+            replace_symbol = "__replace__$" + slot_name
+            replace_idx = input_symbols.find(replace_symbol)
+            if replace_idx >= 0:
+                logger.debug(f"Replacing slot {slot_name} in {main_rule_name}")
+                grammar_fst = fst.replace(
+                    [(-1, grammar_fst), (replace_idx, slot_fst)],
+                    epsilon_on_replace=True,
+                )
+
+                grammar_fsts[grammar_name] = grammar_fst
+
+    # -------------------------------------------------------------------------
+
+    # Remove tag start symbols.
+    # TODO: Only do this for FSTs that actually have tags.
+    for grammar_name, grammar_fst in grammar_fsts.items():
+        main_rule_name = grammar_name + "." + grammar_name
+        listener = listeners[main_rule_name]
+
+        # Create a copy of the grammar FST with __begin__ and __end__ input
+        # labels replaced by <eps>. For some reason, fstreplace fails when this
+        # is done beforehand, whining about cyclic dependencies.
+        in_eps = input_symbols.find(eps)
+        old_fst = grammar_fst
+        grammar_fst = fst.Fst()
+        state_map: Dict[int, int] = {}
+        weight_zero = fst.Weight.Zero(old_fst.weight_type())
+
+        # Copy states with final status
+        for old_state in old_fst.states():
+            new_state = grammar_fst.add_state()
+            state_map[old_state] = new_state
+            if old_fst.final(old_state) != weight_zero:
+                grammar_fst.set_final(new_state)
+
+        # Start state
+        grammar_fst.set_start(state_map[old_fst.start()])
+
+        # Copy arcs
+        for old_state, new_state in state_map.items():
+            for old_arc in old_fst.arcs(old_state):
+                # Replace tag input labels with <eps>
+                input_idx = (
+                    in_eps
+                    if old_arc.ilabel in tag_input_symbols
+                    else old_arc.ilabel
+                )
+
+                grammar_fst.add_arc(
+                    new_state,
+                    fst.Arc(
+                        input_idx,
+                        old_arc.olabel,
+                        fst.Weight.One(grammar_fst.weight_type()),
+                        state_map[old_arc.nextstate],
+                    ),
+                )
+
+        grammar_fst.set_input_symbols(input_symbols)
+        grammar_fst.set_output_symbols(output_symbols)
+
+        # Replace FST
+        grammar_fsts[grammar_name] = grammar_fst
+
+    # -------------------------------------------------------------------------
 
     if not is_list:
         # Single input, single output
         return next(iter(grammar_fsts.values()))
 
     return grammar_fsts
-
-
-def _rule_to_fst(
-    grammar_fst: fst.Fst,
-    sym_table: fst.SymbolTable,
-    rule: Rule,
-    from_state: int,
-    to_state: int,
-    eps=0,
-):
-    one_weight = fst.Weight.One(grammar_fst.weight_type())
-
-    if isinstance(rule, Literal):
-        text = rule.text.strip().lower()
-        if " " in text:
-            # Split text into tokens (words)
-            word_seq = Sequence()
-            for word in re.split(r"\s+", text):
-                word_seq.children.append(Literal(word))
-
-            # Handle sequence
-            _rule_to_fst(
-                grammar_fst, sym_table, word_seq, from_state, to_state, eps=eps
-            )
-        else:
-            word = text
-            if ":" in word:
-                # input:output
-                in_word, out_word = word.split(":", maxsplit=1)
-                in_sym, out_sym = (
-                    sym_table.add_symbol(in_word),
-                    sym_table.add_symbol(out_word),
-                )
-            elif word.startswith("__"):
-                # meta token
-                in_sym = eps
-                out_sym = sym_table.add_symbol(word)
-            else:
-                # regular word
-                in_sym = sym_table.add_symbol(word)
-                out_sym = in_sym
-
-            # Add arc for word
-            grammar_fst.add_arc(
-                from_state, fst.Arc(in_sym, out_sym, one_weight, to_state)
-            )
-    elif isinstance(rule, OptionalGrouping):
-        # Handle child
-        _rule_to_fst(grammar_fst, sym_table, rule.child, from_state, to_state, eps=eps)
-
-        # Add optional arc
-        grammar_fst.add_arc(from_state, fst.Arc(eps, eps, one_weight, to_state))
-    elif isinstance(rule, AlternativeSet):
-        for child in rule.children:
-            # Handle child
-            _rule_to_fst(grammar_fst, sym_table, child, from_state, to_state, eps=eps)
-    elif isinstance(rule, Sequence):
-        current_state = from_state
-        last_state = to_state
-
-        # Connect children in linear chain
-        for child in rule.children:
-            child_state = grammar_fst.add_state()
-            _rule_to_fst(
-                grammar_fst, sym_table, child, current_state, child_state, eps=eps
-            )
-            current_state = child_state
-
-        # Connect to final state
-        grammar_fst.add_arc(current_state, fst.Arc(eps, eps, one_weight, last_state))
-    elif isinstance(rule, Rule):
-        _rule_to_fst(
-            grammar_fst, sym_table, rule.expansion, from_state, to_state, eps=eps
-        )
-    else:
-        assert False, f"Unsupported rule: {rule}"
 
 
 # -----------------------------------------------------------------------------
@@ -365,15 +427,55 @@ def replace_and_patch(
 # -----------------------------------------------------------------------------
 
 
-def read_slots(slots_dir: str) -> Dict[str, List[str]]:
+class SlotValues:
+    def __init__(self) -> None:
+        self.text: Dict[str, List[str]] = {}
+        self.jsgf: Dict[str, List[str]] = {}
+
+    def add_text(self, key: str, value: str) -> None:
+        if key in self.text:
+            self.text[key].append(value)
+        else:
+            self.text[key] = [value]
+
+    def add_jsgf(self, key: str, value: str) -> None:
+        if key in self.jsgf:
+            self.jsgf[key].append(value)
+        else:
+            self.jsgf[key] = [value]
+
+    def get_text(self, key: str):
+        return self.text.get(key, [])
+
+    def get_jsgf(self, key: str):
+        return self.jsgf.get(key, [])
+
+    def __getitem__(self, key: str):
+        return self.get(key)
+
+    def __contains__(self, key: str) -> bool:
+        return (key in self.text) or (key in self.jsgf)
+
+
+def read_slots(slots_dir: str) -> SlotValues:
     """Load slot values (lines) from all files in the given directory."""
-    slots = {}
+    slots = SlotValues()
     if os.path.exists(slots_dir):
         for slot_path in os.listdir(slots_dir):
-            slot_name = os.path.splitext(slot_path)[0]
+            slot_name, slot_ext = os.path.splitext(slot_path)
+            is_jsgf = slot_ext.lower() == ".jsgf"
             slot_path = os.path.join(slots_dir, slot_path)
+
             with open(slot_path, "r") as slot_file:
-                slots[slot_name] = [line.strip().lower() for line in slot_file]
+                for line in slot_file:
+                    line = line.strip()
+                    if len(line) == 0:
+                        continue
+
+                    if is_jsgf:
+                        slots.add_jsgf(slot_name, line)
+                    else:
+                        slots.add_text(slot_name, line)
 
     return slots
 
@@ -381,83 +483,301 @@ def read_slots(slots_dir: str) -> Dict[str, List[str]]:
 # -----------------------------------------------------------------------------
 
 
-def replace_tags_and_rules(
-    rule: Rule, rule_map: Dict[str, Rule], slots: Dict[str, List[str]] = {}
-) -> Rule:
-    """Replace named rules from other grammars with their expansions.
-    Replace tags with sequences of __begin__TAG ... __end__TAG."""
-    if isinstance(rule, jsgf.rules.Rule):
-        # Unpack
-        return replace_tags_and_rules(rule.expansion, rule_map, slots=slots)
-    else:
-        # Extract tag
-        tag = rule.tag
-        if tag and len(tag) == 0:
-            tag = None
+class FSTListener(JsgfParserListener):
+    def __init__(
+        self,
+        this_fst: fst.Fst,
+        input_symbols: fst.SymbolTable,
+        output_symbols: fst.SymbolTable,
+        start_state: int,
+        eps: str = "<eps>",
+    ):
+        self.grammar_name: Optional[str] = None
+        self.is_public = False
+        self.in_rule = False
+        self.in_rule_reference = False
+        self.rule_name = None
+        self.in_optional = False
+        self.in_alternative = False
 
-        if tag:
-            # Replace with __begin__/__end__ sequence
-            rule_copy = rule.copy()
-            rule_copy.tag = None
+        self.group_depth: int = 0
+        self.opt_states: Dict[int, int] = {}
+        self.alt_states: Dict[int, int] = {}
+        self.alt_ends: Dict[int, int] = {}
+        self.tag_states: Dict[int, int] = {}
+        self.exp_states: Dict[int, int] = {}
+        self.last_states: Dict[str, int] = {}
 
-            tag_seq = jsgf.expansions.Sequence()
-            tag_seq.children.extend(
-                [
-                    jsgf.expansions.Literal(f"__begin__{tag}"),
-                    replace_tags_and_rules(rule_copy, rule_map, slots=slots),
-                    jsgf.expansions.Literal(f"__end__{tag}"),
-                ]
-            )
-            return tag_seq
+        # Initial FST
+        self.start_state: int = start_state
+        self.fst: fst.Fst = this_fst
+        self.fsts: Dict[str, fst.Fst] = {}
+        self.rule_references: Dict[str, Set[str]] = defaultdict(set)
+        self.slot_references: Set[str] = set()
+        self.tag_input_symbols: Set[int] = set()
 
-        if isinstance(rule, jsgf.expansions.NamedRuleRef):
-            # <OtherGrammar.otherRule>
-            ref_rule = rule_map.get(rule.name, None)
-            if ref_rule is None:
-                assert rule.rule is not None, f"Missing rule {rule.name}"
-                grammar_name = rule.rule.grammar.name
-                ref_rule = rule_map[f"{grammar_name}.{rule.name}"]
+        # Shared symbol tables
+        self.input_symbols: fst.SymbolTable = input_symbols
+        self.output_symbols: fst.SymbolTable = output_symbols
+        self.weight_one: fst.Weight = fst.Weight.One(self.fst.weight_type())
 
-            # Expand rule
-            return replace_tags_and_rules(ref_rule.expansion, rule_map, slots=slots)
-        elif isinstance(rule, jsgf.expansions.Literal):
-            lit_seq = jsgf.expansions.Sequence()
+        # Indices of <eps> tokens
+        self.in_eps: int = self.input_symbols.find(eps)
+        self.out_eps: int = self.output_symbols.find(eps)
 
-            for word in re.split(r"\s+", rule.text):
-                if word.startswith("$"):
-                    # $slot -> (all | slot | values)
-                    slot_name = word[1:]
-                    if slot_name in slots:
-                        logging.debug(f"Replacing slot {slot_name}")
+    def enterGrammarName(self, ctx):
+        self.grammar_name = ctx.getText()
 
-                        # Replace with alternative set of values
-                        slot_alt = jsgf.expansions.AlternativeSet()
-                        for slot_value in slots[slot_name]:
-                            slot_alt.children.append(jsgf.parse_expansion_string(slot_value))
+    def enterRuleDefinition(self, ctx):
+        # Only a single public rule is expected
+        self.is_public = ctx.PUBLIC() is not None
 
-                        lit_seq.children.append(slot_alt)
-                    else:
-                        logging.warn(f"No slot for {slot_name}")
-                        lit_seq.children.append(jsgf.expansions.Literal(word))
-                else:
-                    lit_seq.children.append(jsgf.expansions.Literal(word))
+    def exitRuleDefinition(self, ctx):
+        self.is_public = False
+        self.fst.set_final(self.last_states[self.rule_name])
 
-            return lit_seq
-        elif hasattr(rule, "children"):
-            # Replace children
-            rule.children = [
-                replace_tags_and_rules(child, rule_map, slots=slots)
-                for child in rule.children
-            ]
+    def enterRuleName(self, ctx):
+        # Create qualified rule name
+        self.rule_name = self.grammar_name + "." + ctx.getText()
 
-            return rule
-        elif hasattr(rule, "child"):
-            # Replace child
-            rule.child = replace_tags_and_rules(rule.child, rule_map, slots=slots)
-            return rule
+    def enterRuleBody(self, ctx):
+        self.in_rule = True
+
+        if self.is_public:
+            # Use main start state
+            self.last_states[self.rule_name] = self.start_state
         else:
-            # Unsupported
-            assert False, rule.__class__
+            # Create new FST
+            self.fst = fst.Fst()
+            self.start_state = self.fst.add_state()
+            self.fst.set_start(self.start_state)
+            self.last_states[self.rule_name] = self.start_state
+
+        self.fsts[self.rule_name] = self.fst
+
+        # Reset
+        self.group_depth = 0
+        self.opt_states = {}
+        self.alt_states = {}
+        self.tag_states = {}
+        self.exp_states = {}
+        self.alt_ends = {}
+
+        # Save anchor state
+        self.alt_states[self.group_depth] = self.last_states[self.rule_name]
+
+    def exitRuleBody(self, ctx):
+        self.in_rule = False
+
+    def enterExpression(self, ctx):
+        self.in_expression = True
+        self.exp_states[self.group_depth] = self.last_states[self.rule_name]
+
+    def exitExpression(self, ctx):
+        self.in_expression = False
+
+    def enterAlternative(self, ctx):
+        anchor_state = self.alt_states[self.group_depth]
+
+        if self.group_depth not in self.alt_ends:
+            # Patch start of alternative
+            next_state = self.fst.add_state()
+            for arc in self.fst.arcs(anchor_state):
+                self.fst.add_arc(next_state, arc)
+
+            self.fst.delete_arcs(anchor_state)
+            self.fst.add_arc(
+                anchor_state,
+                fst.Arc(self.in_eps, self.out_eps, self.weight_one, next_state),
+            )
+
+            # Create shared end state for alternatives
+            self.alt_ends[self.group_depth] = self.fst.add_state()
+
+        # Close previous alternative
+        last_state = self.last_states[self.rule_name]
+        end_state = self.alt_ends[self.group_depth]
+        self.fst.add_arc(
+            last_state, fst.Arc(self.in_eps, self.out_eps, self.weight_one, end_state)
+        )
+
+        # Add new intermediary state
+        next_state = self.fst.add_state()
+        self.fst.add_arc(
+            anchor_state,
+            fst.Arc(self.in_eps, self.out_eps, self.weight_one, next_state),
+        )
+        self.last_states[self.rule_name] = next_state
+
+        self.in_alternative = True
+
+    def exitAlternative(self, ctx):
+        self.in_alternative = False
+
+        # Create arc to shared end state
+        last_state = self.last_states[self.rule_name]
+        end_state = self.alt_ends[self.group_depth]
+        if last_state != end_state:
+            self.fst.add_arc(
+                last_state,
+                fst.Arc(self.in_eps, self.out_eps, self.weight_one, end_state),
+            )
+
+        self.last_states[self.rule_name] = end_state
+
+    def enterOptional(self, ctx):
+        # Save anchor state
+        self.opt_states[self.group_depth] = self.last_states[self.rule_name]
+
+        # Optionals are honorary groups
+        self.group_depth += 1
+
+        # Save anchor state
+        self.alt_states[self.group_depth] = self.last_states[self.rule_name]
+
+        self.in_optional = True
+
+    def exitOptional(self, ctx):
+        # Optionals are honorary groups
+        self.alt_ends.pop(self.group_depth, None)
+        self.group_depth -= 1
+
+        anchor_state = self.opt_states[self.group_depth]
+        last_state = self.last_states[self.rule_name]
+
+        # Add optional by-pass arc
+        # --[<eps>]-->
+        self.fst.add_arc(
+            anchor_state,
+            fst.Arc(self.in_eps, self.out_eps, self.weight_one, last_state),
+        )
+
+        self.in_optional = False
+
+    def enterGroup(self, ctx):
+        self.group_depth += 1
+
+        # Save anchor state
+        self.alt_states[self.group_depth] = self.last_states[self.rule_name]
+
+    def exitGroup(self, ctx):
+        self.alt_ends.pop(self.group_depth, None)
+        self.group_depth -= 1
+
+    def enterRuleReference(self, ctx):
+        self.in_rule_reference = True
+        rule_name = ctx.getText()[1:-1]
+        if "." not in rule_name:
+            # Assume current grammar
+            rule_name = self.grammar_name + "." + rule_name
+
+        self.rule_references[self.rule_name].add(rule_name)
+
+        # Create transition that will be replaced with a different FST
+        rule_symbol = "__replace__" + rule_name
+        input_idx = self.input_symbols.add_symbol(rule_symbol)
+        output_idx = self.output_symbols.add_symbol(rule_symbol)
+
+        # --[__replace__RULE]-->
+        last_state = self.last_states[self.rule_name]
+        next_state = self.fst.add_state()
+        self.fst.add_arc(
+            last_state, fst.Arc(input_idx, output_idx, self.weight_one, next_state)
+        )
+        self.last_states[self.rule_name] = next_state
+
+    def exitRuleReference(self, ctx):
+        self.in_rule_reference = False
+
+    def enterTagBody(self, ctx):
+        # Get the original text *with* whitespace from ANTLR
+        input_stream = ctx.start.getInputStream()
+        start = ctx.start.start
+        stop = ctx.stop.stop
+        tag_text = input_stream.getText(start, stop)
+
+        # Patch start of tag
+        anchor_state = self.exp_states[self.group_depth]
+        next_state = self.fst.add_state()
+
+        # --[__begin__TAG]-->
+        begin_symbol = "__begin__" + tag_text
+        input_idx = self.input_symbols.add_symbol(begin_symbol)
+        output_idx = self.output_symbols.add_symbol(begin_symbol)
+
+        self.tag_input_symbols.add(input_idx)
+
+        # Move outgoing anchor arcs
+        for arc in self.fst.arcs(anchor_state):
+            self.fst.add_arc(
+                next_state, fst.Arc(arc.ilabel, arc.olabel, arc.weight, arc.nextstate)
+            )
+
+        # Patch anchor
+        self.fst.delete_arcs(anchor_state)
+        self.fst.add_arc(
+            anchor_state, fst.Arc(input_idx, output_idx, self.weight_one, next_state)
+        )
+
+        # Patch end of tag
+        last_state = self.last_states[self.rule_name]
+        next_state = self.fst.add_state()
+
+        # --[__end__TAG]-->
+        end_symbol = "__end__" + tag_text
+        input_idx = self.input_symbols.add_symbol(end_symbol)
+        output_idx = self.output_symbols.add_symbol(end_symbol)
+
+        self.tag_input_symbols.add(input_idx)
+
+        self.fst.add_arc(
+            last_state, fst.Arc(input_idx, output_idx, self.weight_one, next_state)
+        )
+        self.last_states[self.rule_name] = next_state
+
+    def enterLiteral(self, ctx):
+        if (not self.in_rule) or self.in_rule_reference:
+            return
+
+        # Get the original text *with* whitespace from ANTLR
+        input_stream = ctx.start.getInputStream()
+        start = ctx.start.start
+        stop = ctx.stop.stop
+        text = input_stream.getText(start, stop)
+        last_state = self.last_states[self.rule_name]
+
+        # Split words by whitespace
+        for word in re.split(r"\s+", text):
+            if ":" in word:
+                # Word contains input:output pair
+                input_symbol = word.split(":", maxsplit=1)[0]
+
+                # NOTE: Entire word (with ":") is used as the output symbol so
+                # that the fstaccept method can know what the original (raw)
+                # text was.
+                output_symbol = word
+            elif word.startswith("$"):
+                # Slot replacement
+                input_symbol = "__replace__" + word
+                output_symbol = input_symbol
+                slot_name = word[1:]
+                self.slot_references.add(slot_name)
+            else:
+                # Word itself is input and output
+                input_symbol, output_symbol = word, word
+
+            input_idx = self.input_symbols.add_symbol(input_symbol)
+            output_idx = self.output_symbols.add_symbol(output_symbol)
+
+            # --[word_in:word_out]-->
+            next_state = self.fst.add_state()
+            self.fst.add_arc(
+                last_state, fst.Arc(input_idx, output_idx, self.weight_one, next_state)
+            )
+            self.exp_states[self.group_depth] = last_state
+            last_state = next_state
+
+        self.last_states[self.rule_name] = last_state
 
 
 # -----------------------------------------------------------------------------

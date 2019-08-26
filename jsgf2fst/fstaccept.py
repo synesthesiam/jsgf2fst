@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional, TextIO, Mapping, Union
 
 import pywrapfst as fst
 
+logger = logging.getLogger("fstaccept")
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -73,7 +74,7 @@ def fstaccept(
             intents.append(intent)
     except:
         # Error, assign blank result
-        logging.exception(sentence)
+        logger.exception(sentence)
 
     return intents
 
@@ -155,7 +156,10 @@ def symbols2intent(
                     # Use replacement text
                     in_sym, out_sym = sym.split(":", maxsplit=1)
                     tag_info.raw_symbols.append(in_sym)
-                    tag_info.symbols.append(out_sym)
+
+                    if len(out_sym.strip()) > 0:
+                        # Ignore empty output symbols
+                        tag_info.symbols.append(out_sym)
                 else:
                     # Use original symbol
                     tag_info.raw_symbols.append(sym)
@@ -166,8 +170,11 @@ def symbols2intent(
                 # Use replacement symbol
                 in_sym, out_sym = sym.split(":", maxsplit=1)
                 raw_symbols.append(in_sym)
-                out_symbols.append(out_sym)
-                out_index += len(out_sym) + 1  # space
+
+                if len(out_sym.strip()) > 0:
+                    # Ignore empty output symbols
+                    out_symbols.append(out_sym)
+                    out_index += len(out_sym) + 1  # space
             else:
                 # Use original symbol
                 raw_symbols.append(sym)
