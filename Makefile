@@ -13,7 +13,7 @@ clean:
 dist:
 	rm -rf dist/
 	mkdir -p dist
-	tar -czvf dist/jsgf2fst-0.2.0.tar.gz --exclude=__pycache__ README.md setup.py requirements.txt jsgf2fst/ jsgf/
+	tar -czvf dist/jsgf2fst-0.2.0.tar.gz --exclude=__pycache__ README.md setup.py requirements.txt jsgf2fst/
 
 antlr: JsgfLexer.g4 JsgfParser.g4
 	java -jar $(antlr_jar) -Dlanguage=Python3 -o jsgf2fst/ $^
