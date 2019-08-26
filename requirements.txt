@@ -1,3 +1,2 @@
 openfst==1.6.9
-pyparsing>=2.2.0
-six
+antlr4-python3-runtime

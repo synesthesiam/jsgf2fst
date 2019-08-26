@@ -8,7 +8,7 @@ import logging
 import argparse
 from typing import Optional, Any
 
-logger = logger.getLogger("fst2arpa")
+logger = logging.getLogger("fst2arpa")
 
 
 def main() -> None:

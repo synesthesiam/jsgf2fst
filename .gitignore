@@ -7,3 +7,5 @@ workbench.xmi
 *.ipynb
 fstprint-all
 build/
+*.interp
+*.tokens

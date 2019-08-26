@@ -3,10 +3,10 @@ from glob import glob
 import unittest
 import logging
 import tempfile
+from pathlib import Path
 
 logging.basicConfig(level=logging.DEBUG)
 
-import jsgf
 from jsgf2fst import (
     jsgf2fst,
     fstaccept,
@@ -27,8 +27,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_timer(self):
-        grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
-        timer_fst = jsgf2fst(grammar)
+        timer_fst = jsgf2fst(Path("test/SetTimer.gram"))
         self.assertGreater(len(list(timer_fst.states())), 0)
 
         intents = fstaccept(
@@ -72,16 +71,14 @@ class Jsgf2FstTestCase(unittest.TestCase):
 
         # Verify number of sentences (takes a long time)
         logging.debug("Counting all possible test sentences...")
-        timer_fst.write("timer.fst")
         sentences = fstprintall(timer_fst, exclude_meta=False)
         self.assertEqual(len(sentences), 2 * (59 * (1 + (2 * 59))))
 
     # -------------------------------------------------------------------------
 
     def test_slots(self):
-        grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
         slots = read_slots("test/slots")
-        fst = jsgf2fst(grammar, slots=slots)
+        fst = jsgf2fst(Path("test/ChangeLightColor.gram"), slots=slots)
         self.assertGreater(len(list(fst.states())), 0)
 
         intents = fstaccept(fst, "set color to orange", intent_name="ChangeLightColor")
@@ -99,12 +96,11 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_reference(self):
-        grammars = [
-            jsgf.parse_grammar_file(p)
-            for p in ["test/ChangeLight.gram", "test/ChangeLightColor.gram"]
-        ]
         slots = read_slots("test/slots")
-        fsts = jsgf2fst(grammars, slots=slots)
+        fsts = jsgf2fst(
+            [Path("test/ChangeLight.gram"), Path("test/ChangeLightColor.gram")],
+            slots=slots,
+        )
         fst = fsts["ChangeLight"]
         self.assertGreater(len(list(fst.states())), 0)
 
@@ -137,8 +133,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_arpa(self):
-        grammar = jsgf.parse_grammar_file("test/SetTimer.gram")
-        fst = jsgf2fst(grammar)
+        fst = jsgf2fst(Path("test/SetTimer.gram"))
         self.assertGreater(len(list(fst.states())), 0)
 
         with tempfile.NamedTemporaryFile(mode="wb+") as fst_file:
@@ -151,9 +146,8 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_printall(self):
-        grammar = jsgf.parse_grammar_file("test/ChangeLightColor.gram")
         slots = read_slots("test/slots")
-        fst = jsgf2fst(grammar, slots=slots)
+        fst = jsgf2fst(Path("test/ChangeLightColor.gram"), slots=slots)
         self.assertGreater(len(list(fst.states())), 0)
         sentences = fstprintall(fst, exclude_meta=False)
         self.assertEqual(len(sentences), 12)
@@ -166,8 +160,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_end_disjunction(self):
-        grammar = jsgf.parse_grammar_file("test/GetGarageState.gram")
-        fst = jsgf2fst(grammar)
+        fst = jsgf2fst(Path("test/GetGarageState.gram"))
         self.assertGreater(len(list(fst.states())), 0)
         sentences = fstprintall(fst, exclude_meta=False)
         self.assertEqual(len(sentences), 2)
@@ -181,9 +174,8 @@ class Jsgf2FstTestCase(unittest.TestCase):
     # -------------------------------------------------------------------------
 
     def test_intent_fst(self):
-        grammars = [jsgf.parse_grammar_file(p) for p in glob("test/*.gram")]
         slots = read_slots("test/slots")
-        grammar_fsts = jsgf2fst(grammars, slots=slots)
+        grammar_fsts = jsgf2fst(Path("test").glob("*.gram"), slots=slots)
         intent_fst = make_intent_fst(grammar_fsts)
 
         # Check timer input
@@ -220,6 +212,7 @@ class Jsgf2FstTestCase(unittest.TestCase):
             ev = intent["entities"][0]
             self.assertEqual(ev["entity"], "color")
             self.assertEqual(ev["value"], "purple")
+
 
 # -----------------------------------------------------------------------------
 
